@@ -33,18 +33,25 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
 
   const tryBiometric = useCallback(async () => {
     setMode('biometric');
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    if (hasHardware && isEnrolled) {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Unlock clauded',
-        // Device passcode bypass disabled — app PIN is the fallback, not the device lock.
-        disableDeviceFallback: true,
-      });
-      if (result.success) {
-        onUnlock();
-        return;
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (hasHardware && isEnrolled) {
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Unlock clauded',
+          // Required on Android when disableDeviceFallback is true: the BiometricPrompt
+          // builder throws if the negative button text is empty.
+          cancelLabel: 'Use PIN',
+          // Device passcode bypass disabled — app PIN is the fallback, not the device lock.
+          disableDeviceFallback: true,
+        });
+        if (result.success) {
+          onUnlock();
+          return;
+        }
       }
+    } catch {
+      // Fall through to PIN entry on any native failure.
     }
     showPinEntry();
   }, [onUnlock, showPinEntry]);
