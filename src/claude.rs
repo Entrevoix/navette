@@ -10,16 +10,23 @@ use crate::PendingApprovals;
 use crate::db;
 use crate::ws::EventTx;
 
+use tokio::sync::oneshot;
+
 const MAX_PAYLOAD: usize = 65_536; // 64 KiB
+const SKIP_PERMISSIONS_FLAG: &str = "--dangerously-skip-permissions";
 
 pub async fn spawn_and_process(
     prompt: &str,
     container: Option<&str>,
+    dangerously_skip_permissions: bool,
+    kill_rx: oneshot::Receiver<()>,
     db: Arc<Mutex<Connection>>,
     _pending: PendingApprovals,
     events_tx: EventTx,
 ) -> Result<()> {
-    write_hook_settings().context("failed to write hook settings")?;
+    if !dangerously_skip_permissions {
+        write_hook_settings().context("failed to write hook settings")?;
+    }
 
     let claude_bin = std::env::var("CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
 
@@ -40,14 +47,25 @@ pub async fn spawn_and_process(
     // Claude runs inside that container and can access container-only tools.
     let cmd = match container {
         Some(c) => {
-            tracing::info!(container = c, "spawning claude inside distrobox container");
+            tracing::info!(container = c, dangerously_skip_permissions, "spawning claude inside distrobox container");
             let mut cmd = CommandBuilder::new("distrobox-enter");
-            cmd.args(["--name", c, "--", &claude_bin, "--output-format", "stream-json", "--verbose", "-p", prompt]);
+            let mut args = vec!["--name", c, "--", &claude_bin, "--output-format", "stream-json", "--verbose"];
+            if dangerously_skip_permissions {
+                args.push(SKIP_PERMISSIONS_FLAG);
+            }
+            args.extend(["-p", prompt]);
+            cmd.args(&args);
             cmd
         }
         None => {
+            tracing::info!(dangerously_skip_permissions, "spawning claude");
             let mut cmd = CommandBuilder::new(&claude_bin);
-            cmd.args(["--output-format", "stream-json", "--verbose", "-p", prompt]);
+            let mut args = vec!["--output-format", "stream-json", "--verbose"];
+            if dangerously_skip_permissions {
+                args.push(SKIP_PERMISSIONS_FLAG);
+            }
+            args.extend(["-p", prompt]);
+            cmd.args(&args);
             cmd
         }
     };
@@ -84,7 +102,22 @@ pub async fn spawn_and_process(
 
     let mut event_count: u64 = 0;
 
-    while let Some(raw) = rx.recv().await {
+    tokio::pin!(kill_rx);
+    loop {
+    let raw = tokio::select! {
+        maybe = rx.recv() => match maybe {
+            Some(r) => r,
+            None => break,
+        },
+        result = &mut kill_rx => {
+            if result.is_ok() {
+                tracing::info!("kill_session received, killing claude process");
+                let _ = child.kill();
+            }
+            break;
+        },
+    };
+    {
         // PTYs use \r\n; strip CR and any ANSI escape sequences.
         let line = strip_ansi(raw.trim_end_matches('\r'));
         if line.trim().is_empty() {
@@ -136,7 +169,8 @@ pub async fn spawn_and_process(
                 .unwrap_or("unknown");
             tracing::info!(seq, event_type, "event logged");
         }
-    }
+    } // end inner block
+    } // end loop
 
     tokio::task::spawn_blocking(move || child.wait())
         .await
@@ -156,9 +190,22 @@ fn strip_ansi(s: &str) -> String {
             match chars.peek() {
                 Some('[') => {
                     chars.next();
-                    // Consume until final byte (ASCII letter or a few other terminators)
+                    // CSI sequence: consume until final byte (ASCII letter or a few other terminators)
                     for c2 in chars.by_ref() {
                         if c2.is_ascii_alphabetic() || c2 == 'm' || c2 == 'J' || c2 == 'K' {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    chars.next();
+                    // OSC sequence: consume until BEL (\x07) or String Terminator (\x1b\\)
+                    for c2 in chars.by_ref() {
+                        if c2 == '\x07' {
+                            break;
+                        }
+                        if c2 == '\x1b' {
+                            chars.next(); // consume the trailing '\'
                             break;
                         }
                     }

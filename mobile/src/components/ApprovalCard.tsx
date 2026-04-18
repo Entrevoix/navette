@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import { Dimensions, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -17,18 +17,33 @@ interface ApprovalCardProps {
   onDecide: (tool_use_id: string, allow: boolean) => void;
 }
 
-function formatInput(input: Record<string, unknown>): string {
-  const entries = Object.entries(input);
-  if (entries.length === 0) return '(no input)';
-  const first = entries[0];
-  const value = typeof first[1] === 'string' ? first[1] : JSON.stringify(first[1]);
-  const preview = value.slice(0, 200);
-  return entries.length === 1 ? preview : `${preview}\n…+${entries.length - 1} more`;
+function formatInput(input: Record<string, unknown>): { label: string; value: string }[] {
+  return Object.entries(input).map(([key, val]) => ({
+    label: key,
+    value: typeof val === 'string' ? val : JSON.stringify(val, null, 2),
+  }));
 }
 
 export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
   const translateX = useSharedValue(0);
-  const opacity = useSharedValue(1);
+  const [expanded, setExpanded] = useState(false);
+  const fields = formatInput(approval.tool_input);
+
+  const [secsRemaining, setSecsRemaining] = useState<number | null>(
+    approval.expires_at != null
+      ? Math.max(0, Math.round(approval.expires_at - Date.now() / 1000))
+      : null
+  );
+
+  useEffect(() => {
+    if (approval.expires_at == null) return;
+    const tick = () => {
+      setSecsRemaining(Math.max(0, Math.round(approval.expires_at! - Date.now() / 1000)));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [approval.expires_at]);
 
   const dismiss = useCallback((allow: boolean) => {
     onDecide(approval.tool_use_id, allow);
@@ -54,7 +69,6 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
-    opacity: opacity.value,
   }));
 
   const allowOpacity = useAnimatedStyle(() => ({
@@ -80,12 +94,32 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
             <View style={styles.toolBadge}>
               <Text style={styles.toolName}>{approval.tool_name}</Text>
             </View>
-            <Text style={styles.seqLabel}>#{approval.seq}</Text>
+            <View style={styles.headerRight}>
+              {secsRemaining !== null && (
+                <Text style={[styles.countdown, secsRemaining <= 30 && styles.countdownWarn]}>
+                  {secsRemaining}s
+                </Text>
+              )}
+              <Text style={styles.seqLabel}>#{approval.seq}</Text>
+            </View>
           </View>
 
-          <Text style={styles.inputText} numberOfLines={8}>
-            {formatInput(approval.tool_input)}
-          </Text>
+          <Pressable onPress={() => setExpanded(x => !x)} style={styles.inputArea}>
+            <ScrollView
+              style={[styles.inputScroll, expanded ? styles.inputScrollExpanded : styles.inputScrollCollapsed]}
+              scrollEnabled={expanded}
+              showsVerticalScrollIndicator={expanded}
+              nestedScrollEnabled
+            >
+              {fields.map(({ label, value }, idx) => (
+                <View key={`${label}-${idx}`} style={styles.field}>
+                  <Text style={styles.fieldLabel}>{label}</Text>
+                  <Text selectable style={styles.fieldValue}>{value}</Text>
+                </View>
+              ))}
+            </ScrollView>
+            <Text style={styles.expandHint}>{expanded ? '▲ collapse' : '▼ tap to expand'}</Text>
+          </Pressable>
 
           <View style={styles.actions}>
             <Pressable style={[styles.btn, styles.denyBtn]} onPress={() => dismiss(false)}>
@@ -159,16 +193,62 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: 0.3,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  countdown: {
+    color: '#555',
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
+  },
+  countdownWarn: {
+    color: '#f97316',
+  },
   seqLabel: {
     color: '#555',
     fontSize: 12,
   },
-  inputText: {
+  inputArea: {
+    marginBottom: 14,
+  },
+  inputScroll: {
+    backgroundColor: '#0d0d0d',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#222',
+    padding: 10,
+  },
+  inputScrollCollapsed: {
+    maxHeight: 140,
+  },
+  inputScrollExpanded: {
+    maxHeight: 320,
+  },
+  field: {
+    marginBottom: 10,
+  },
+  fieldLabel: {
+    color: '#555',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  fieldValue: {
     color: '#d0d0d0',
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     fontSize: 12,
     lineHeight: 18,
-    marginBottom: 16,
+  },
+  expandHint: {
+    color: '#333',
+    fontSize: 10,
+    textAlign: 'right',
+    marginTop: 4,
+    marginRight: 4,
   },
   actions: {
     flexDirection: 'row',
@@ -177,7 +257,7 @@ const styles = StyleSheet.create({
   },
   btn: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 13,
     borderRadius: 8,
     alignItems: 'center',
   },
@@ -192,16 +272,16 @@ const styles = StyleSheet.create({
   allowText: {
     color: '#4ade80',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 15,
   },
   denyText: {
     color: '#888',
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: 15,
   },
   swipeHint: {
     textAlign: 'center',
-    color: '#3a3a3a',
+    color: '#2e2e2e',
     fontSize: 11,
   },
 });

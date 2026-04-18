@@ -2,6 +2,7 @@ mod claude;
 mod config;
 mod db;
 mod hook;
+mod notify;
 mod ws;
 
 use std::{collections::HashMap, sync::Arc};
@@ -17,6 +18,9 @@ pub type PendingApprovals = Arc<Mutex<HashMap<String, oneshot::Sender<Decision>>
 /// The hook checks this map first so early approvals aren't lost.
 pub type BufferedDecisions = Arc<Mutex<HashMap<String, Decision>>>;
 
+/// Oneshot sender stored while a session is running; WS clients send kill_session to fire it.
+pub type KillSwitch = Arc<Mutex<Option<oneshot::Sender<()>>>>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
     Allow,
@@ -28,19 +32,22 @@ pub struct RunRequest {
     pub prompt: String,
     /// If set, runs inside `distrobox-enter --name <container> --`.
     pub container: Option<String>,
+    /// Pass `--dangerously-skip-permissions` to claude — bypasses all tool approval hooks.
+    pub dangerously_skip_permissions: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let cfg = config::load_or_create()?;
+    let cfg = Arc::new(config::load_or_create()?);
     tracing::info!(ws_port = cfg.ws_port, "config loaded");
 
     let db = Arc::new(std::sync::Mutex::new(db::open()?));
     let pending: PendingApprovals = Arc::new(Mutex::new(HashMap::new()));
     let buffered: BufferedDecisions = Arc::new(Mutex::new(HashMap::new()));
     let session_running = Arc::new(AtomicBool::new(false));
+    let kill_switch: KillSwitch = Arc::new(Mutex::new(None));
 
     // Broadcast channel: (seq, unix_ts, raw_json) — 4096 slot buffer per subscriber
     let (events_tx, _) = broadcast::channel::<(i64, f64, String)>(4096);
@@ -49,7 +56,45 @@ async fn main() -> Result<()> {
     let (run_tx, mut run_rx) = mpsc::channel::<RunRequest>(1);
 
     // Hook socket — must be running before Claude is spawned
-    tokio::spawn(hook::serve(pending.clone(), buffered.clone()));
+    tokio::spawn(hook::serve(
+        pending.clone(),
+        buffered.clone(),
+        events_tx.clone(),
+        cfg.approval_ttl_secs,
+        cfg.approval_warn_before_secs,
+    ));
+
+    // Push notifications — subscribes to the broadcast channel and fires ntfy POSTs
+    {
+        let notify = notify::NotifyClient::new(&cfg.notify);
+        let mut notify_rx = events_tx.subscribe();
+        tokio::spawn(async move {
+            while let Ok((_, _, json)) = notify_rx.recv().await {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
+                    match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+                        "approval_pending" => {
+                            let tool = v["tool_name"].as_str().unwrap_or("tool");
+                            let _ = notify.publish("Claude needs approval", tool, "default", &["warning"]).await;
+                        }
+                        "approval_warning" => {
+                            let secs = v["seconds_remaining"].as_u64().unwrap_or(30);
+                            let body = format!("Expires in {secs}s");
+                            let _ = notify.publish("Approval expiring", &body, "high", &["stopwatch"]).await;
+                        }
+                        "approval_expired" => {
+                            let _ = notify.publish("Auto-denied", "Approval timed out", "default", &[]).await;
+                        }
+                        "session_ended" => {
+                            let ok = v["ok"].as_bool().unwrap_or(false);
+                            let (title, tag) = if ok { ("Session done", "white_check_mark") } else { ("Session failed", "x") };
+                            let _ = notify.publish(title, "", "low", &[tag]).await;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+    }
 
     // WebSocket server
     tokio::spawn(ws::serve(
@@ -61,6 +106,8 @@ async fn main() -> Result<()> {
         events_tx.clone(),
         run_tx,
         session_running.clone(),
+        kill_switch.clone(),
+        cfg.clone(),
     ));
 
     // Stdin fallback approvals (useful for debugging without a WS client)
@@ -72,10 +119,15 @@ async fn main() -> Result<()> {
     while let Some(req) = run_rx.recv().await {
         session_running.store(true, Ordering::SeqCst);
 
+        let (kill_tx, kill_rx) = oneshot::channel::<()>();
+        *kill_switch.lock().await = Some(kill_tx);
+
         let ts = unix_ts();
         let started_json = serde_json::to_string(&serde_json::json!({
             "type": "session_started",
+            "prompt": req.prompt,
             "container": req.container,
+            "dangerously_skip_permissions": req.dangerously_skip_permissions,
         }))?;
         let seq = {
             let conn = db.lock().unwrap();
@@ -86,11 +138,15 @@ async fn main() -> Result<()> {
         let result = claude::spawn_and_process(
             &req.prompt,
             req.container.as_deref(),
+            req.dangerously_skip_permissions,
+            kill_rx,
             db.clone(),
             pending.clone(),
             events_tx.clone(),
         )
         .await;
+
+        kill_switch.lock().await.take();
 
         if let Err(e) = &result {
             tracing::error!("session error: {e:#}");

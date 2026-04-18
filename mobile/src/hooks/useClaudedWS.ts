@@ -1,7 +1,15 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, AssistantEvent, ToolUseBlock } from '../types';
 
+const LAST_SEQ_KEY = 'clauded_last_seq';
+
 const CLIENT_ID = `mobile-${Math.random().toString(36).slice(2, 8)}`;
+
+export interface NotifyConfig {
+  topic: string;
+  base_url: string;
+}
 
 interface UseClaudedWSResult {
   status: ConnectionStatus;
@@ -9,10 +17,13 @@ interface UseClaudedWSResult {
   events: EventFrame[];
   pendingApprovals: PendingApproval[];
   lastSeq: number;
+  notifyConfig: NotifyConfig | null;
   connect: (config: ServerConfig) => void;
   disconnect: () => void;
   decide: (tool_use_id: string, allow: boolean) => void;
-  run: (prompt: string, container?: string) => void;
+  run: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean) => void;
+  kill: () => void;
+  getNotifyConfig: () => void;
 }
 
 export function useClaudedWS(): UseClaudedWSResult {
@@ -21,10 +32,19 @@ export function useClaudedWS(): UseClaudedWSResult {
   const [events, setEvents] = useState<EventFrame[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [lastSeq, setLastSeq] = useState(0);
+  const [notifyConfig, setNotifyConfig] = useState<NotifyConfig | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const lastSeqRef = useRef(0);
+  const storedSinceRef = useRef(0);
   const resolvedToolIds = useRef<Set<string>>(new Set<string>());
+  const sessionRunningRef = useRef(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(LAST_SEQ_KEY).then((val: string | null) => {
+      if (val) storedSinceRef.current = parseInt(val, 10);
+    });
+  }, []);
 
   const decide = useCallback((tool_use_id: string, allow: boolean) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -40,31 +60,48 @@ export function useClaudedWS(): UseClaudedWSResult {
     );
   }, []);
 
-  const run = useCallback((prompt: string, container?: string) => {
+  const run = useCallback((prompt: string, container?: string, dangerouslySkipPermissions?: boolean) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'run',
         prompt,
         container: container || null,
+        dangerously_skip_permissions: dangerouslySkipPermissions ?? false,
       }));
     }
   }, []);
 
+  const kill = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'kill_session' }));
+    }
+  }, []);
+
+  const getNotifyConfig = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'get_notify_config' }));
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
+    AsyncStorage.setItem(LAST_SEQ_KEY, String(lastSeqRef.current));
     wsRef.current?.close();
     wsRef.current = null;
     setStatus('disconnected');
     setSessionStatus('idle');
+    setNotifyConfig(null);
   }, []);
 
   const processEvent = useCallback((frame: EventFrame) => {
     const event = frame.event;
 
     if (event.type === 'session_started') {
+      sessionRunningRef.current = true;
       setSessionStatus('running');
       return;
     }
     if (event.type === 'session_ended') {
+      sessionRunningRef.current = false;
       setSessionStatus('idle');
       return;
     }
@@ -98,6 +135,23 @@ export function useClaudedWS(): UseClaudedWSResult {
         );
       }
     }
+
+    if (event.type === 'approval_pending') {
+      const { tool_use_id, expires_at } = event as { type: string; tool_use_id: string; expires_at: number };
+      setPendingApprovals((prev: PendingApproval[]) =>
+        prev.map((p: PendingApproval) =>
+          p.tool_use_id === tool_use_id ? { ...p, expires_at } : p
+        )
+      );
+    }
+
+    if (event.type === 'approval_expired') {
+      const { tool_use_id } = event as { type: string; tool_use_id: string };
+      resolvedToolIds.current.add(tool_use_id);
+      setPendingApprovals((prev: PendingApproval[]) =>
+        prev.filter((p: PendingApproval) => p.tool_use_id !== tool_use_id)
+      );
+    }
   }, []);
 
   const connect = useCallback((config: ServerConfig) => {
@@ -110,6 +164,7 @@ export function useClaudedWS(): UseClaudedWSResult {
     setLastSeq(0);
     resolvedToolIds.current = new Set<string>();
 
+    const since = storedSinceRef.current;
     const url = `ws://${config.host}:${config.port}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -131,9 +186,10 @@ export function useClaudedWS(): UseClaudedWSResult {
 
       if (msgType === 'welcome') {
         const running = msg['session_running'] as boolean | undefined;
+        sessionRunningRef.current = running ?? false;
         setSessionStatus(running ? 'running' : 'idle');
         setStatus('connecting');
-        ws.send(JSON.stringify({ type: 'attach', since: 0 }));
+        ws.send(JSON.stringify({ type: 'attach', since }));
         return;
       }
 
@@ -145,6 +201,18 @@ export function useClaudedWS(): UseClaudedWSResult {
 
       if (msgType === 'caught-up') {
         setStatus('connected');
+        AsyncStorage.setItem(LAST_SEQ_KEY, String(lastSeqRef.current));
+        if (!sessionRunningRef.current) {
+          setPendingApprovals([]);
+        }
+        return;
+      }
+
+      if (msgType === 'notify_config') {
+        setNotifyConfig({
+          topic: (msg['topic'] as string) ?? '',
+          base_url: (msg['base_url'] as string) ?? '',
+        });
         return;
       }
 
@@ -171,5 +239,5 @@ export function useClaudedWS(): UseClaudedWSResult {
 
   useEffect(() => () => { wsRef.current?.close(); }, []);
 
-  return { status, sessionStatus, events, pendingApprovals, lastSeq, connect, disconnect, decide, run };
+  return { status, sessionStatus, events, pendingApprovals, lastSeq, notifyConfig, connect, disconnect, decide, run, kill, getNotifyConfig };
 }

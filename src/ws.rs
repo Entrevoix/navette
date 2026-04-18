@@ -9,8 +9,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
+use crate::config::Config;
 use crate::db;
-use crate::{BufferedDecisions, Decision, PendingApprovals, RunRequest};
+use crate::{BufferedDecisions, Decision, KillSwitch, PendingApprovals, RunRequest};
 
 /// Broadcast channel payload: (seq, unix_ts, raw_json_string)
 pub type EventTx = broadcast::Sender<(i64, f64, String)>;
@@ -24,6 +25,8 @@ pub async fn serve(
     events_tx: EventTx,
     run_tx: mpsc::Sender<RunRequest>,
     session_running: Arc<AtomicBool>,
+    kill_switch: KillSwitch,
+    cfg: Arc<Config>,
 ) -> Result<()> {
     let addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&addr)
@@ -42,6 +45,8 @@ pub async fn serve(
                 let buffered = buffered.clone();
                 let run_tx = run_tx.clone();
                 let session_running = session_running.clone();
+                let kill_switch = kill_switch.clone();
+                let cfg = cfg.clone();
                 tokio::spawn(async move {
                     if let Err(e) = handle_ws(
                         stream,
@@ -52,6 +57,8 @@ pub async fn serve(
                         events_rx,
                         run_tx,
                         session_running,
+                        kill_switch,
+                        cfg,
                     )
                     .await
                     {
@@ -74,6 +81,8 @@ async fn handle_ws(
     mut events_rx: broadcast::Receiver<(i64, f64, String)>,
     run_tx: mpsc::Sender<RunRequest>,
     session_running: Arc<AtomicBool>,
+    kill_switch: KillSwitch,
+    cfg: Arc<Config>,
 ) -> Result<()> {
     let ws = accept_async(stream).await.context("WS upgrade failed")?;
     let (mut sink, mut src) = ws.split();
@@ -121,7 +130,7 @@ async fn handle_ws(
                     since = since_msg.get("since").and_then(|v| v.as_i64()).unwrap_or(0);
                 }
             } else {
-                handle_input(&msg, &client_id, &pending, &buffered, &run_tx, &session_running)
+                handle_input(&msg, &client_id, &pending, &buffered, &run_tx, &session_running, &kill_switch)
                     .await;
             }
         }
@@ -175,7 +184,18 @@ async fn handle_ws(
                 match msg {
                     Some(Ok(Message::Text(txt))) => {
                         if let Ok(v) = serde_json::from_str::<Value>(&txt) {
-                            handle_input(&v, &client_id, &pending, &buffered, &run_tx, &session_running).await;
+                            if v.get("type").and_then(|t| t.as_str()) == Some("get_notify_config") {
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "notify_config",
+                                    "topic": cfg.notify.ntfy_topic,
+                                    "base_url": cfg.notify.ntfy_base_url,
+                                })).unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else {
+                                handle_input(&v, &client_id, &pending, &buffered, &run_tx, &session_running, &kill_switch).await;
+                            }
                         }
                     }
                     Some(Ok(Message::Ping(data))) => {
@@ -201,6 +221,7 @@ async fn handle_input(
     buffered: &BufferedDecisions,
     run_tx: &mpsc::Sender<RunRequest>,
     session_running: &Arc<AtomicBool>,
+    kill_switch: &KillSwitch,
 ) {
     let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -241,14 +262,27 @@ async fn handle_input(
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string());
+            let dangerously_skip_permissions = msg
+                .get("dangerously_skip_permissions")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
 
-            tracing::info!(%client_id, container = ?container, "received run request");
+            tracing::info!(%client_id, container = ?container, dangerously_skip_permissions, "received run request");
             let req = RunRequest {
                 prompt: prompt.to_string(),
                 container,
+                dangerously_skip_permissions,
             };
             if run_tx.try_send(req).is_err() {
                 tracing::warn!(%client_id, "run_tx full or closed");
+            }
+        }
+        "kill_session" => {
+            if let Some(tx) = kill_switch.lock().await.take() {
+                let _ = tx.send(());
+                tracing::info!(%client_id, "kill_session: terminating running session");
+            } else {
+                tracing::warn!(%client_id, "kill_session: no session running");
             }
         }
         _ => {}

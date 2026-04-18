@@ -1,4 +1,5 @@
 use std::os::unix::fs::PermissionsExt;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::oneshot;
 
+use crate::ws::EventTx;
 use crate::{BufferedDecisions, Decision, PendingApprovals};
 
 /// What the clauded-hook binary sends over the socket.
@@ -26,7 +28,13 @@ struct HookResponse {
 
 /// Bind the Unix socket and accept hook connections forever.
 /// Each connection is handled in its own spawned task.
-pub async fn serve(pending: PendingApprovals, buffered: BufferedDecisions) -> Result<()> {
+pub async fn serve(
+    pending: PendingApprovals,
+    buffered: BufferedDecisions,
+    events_tx: EventTx,
+    approval_ttl_secs: u64,
+    approval_warn_before_secs: u64,
+) -> Result<()> {
     let socket_dir = socket_dir()?;
     std::fs::create_dir_all(&socket_dir)
         .with_context(|| format!("failed to create socket dir {}", socket_dir.display()))?;
@@ -47,8 +55,18 @@ pub async fn serve(pending: PendingApprovals, buffered: BufferedDecisions) -> Re
             Ok((stream, _)) => {
                 let pending = pending.clone();
                 let buffered = buffered.clone();
+                let events_tx = events_tx.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_connection(stream, pending, buffered).await {
+                    if let Err(e) = handle_connection(
+                        stream,
+                        pending,
+                        buffered,
+                        events_tx,
+                        approval_ttl_secs,
+                        approval_warn_before_secs,
+                    )
+                    .await
+                    {
                         tracing::error!("hook connection error: {e:#}");
                     }
                 });
@@ -64,6 +82,9 @@ async fn handle_connection(
     mut stream: UnixStream,
     pending: PendingApprovals,
     buffered: BufferedDecisions,
+    events_tx: EventTx,
+    approval_ttl_secs: u64,
+    approval_warn_before_secs: u64,
 ) -> Result<()> {
     // Read request JSON until hook binary shuts down its write half
     let mut buf = String::new();
@@ -87,15 +108,44 @@ async fn handle_connection(
         d
     } else {
         // Register a oneshot channel keyed by tool_use_id.
-        // Concurrent tool calls each get their own independent slot.
         let (tx, rx) = oneshot::channel::<Decision>();
         pending.lock().await.insert(req.tool_use_id.clone(), tx);
 
-        // Block until a client (stdin or WebSocket) sends a decision.
-        // If the sender is dropped (daemon shutdown), deny.
-        let d = rx.await.unwrap_or(Decision::Deny);
-        pending.lock().await.remove(&req.tool_use_id);
-        d
+        let expires_at = unix_ts() + approval_ttl_secs as f64;
+        emit_event(&events_tx, serde_json::json!({
+            "type": "approval_pending",
+            "tool_use_id": req.tool_use_id,
+            "tool_name": req.tool_name,
+            "expires_at": expires_at,
+        }));
+
+        // Warning task fires warn_before_secs before the deadline.
+        // May fire even if approval was already resolved — mobile client ignores stale ids.
+        let warn_tx = events_tx.clone();
+        let warn_id = req.tool_use_id.clone();
+        let warn_delay = approval_ttl_secs.saturating_sub(approval_warn_before_secs);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(warn_delay)).await;
+            emit_event(&warn_tx, serde_json::json!({
+                "type": "approval_warning",
+                "tool_use_id": warn_id,
+                "seconds_remaining": approval_warn_before_secs,
+            }));
+        });
+
+        match tokio::time::timeout(Duration::from_secs(approval_ttl_secs), rx).await {
+            Ok(Ok(d)) => d,
+            _ => {
+                pending.lock().await.remove(&req.tool_use_id);
+                emit_event(&events_tx, serde_json::json!({
+                    "type": "approval_expired",
+                    "tool_use_id": req.tool_use_id,
+                    "auto_decision": "deny",
+                }));
+                tracing::info!(tool_use_id = %req.tool_use_id, "approval timed out — auto-deny");
+                Decision::Deny
+            }
+        }
     };
 
     tracing::info!(
@@ -123,4 +173,15 @@ pub fn socket_dir() -> Result<std::path::PathBuf> {
     let runtime_dir =
         std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     Ok(std::path::PathBuf::from(runtime_dir).join("clauded"))
+}
+
+fn emit_event(tx: &EventTx, v: serde_json::Value) {
+    let _ = tx.send((0, unix_ts(), v.to_string()));
+}
+
+fn unix_ts() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64()
 }

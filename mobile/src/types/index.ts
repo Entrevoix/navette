@@ -60,6 +60,14 @@ export interface PendingApproval {
   tool_name: string;
   tool_input: Record<string, unknown>;
   seq: number;
+  expires_at?: number;
+}
+
+export interface ApprovalPendingEvent {
+  type: 'approval_pending';
+  tool_use_id: string;
+  tool_name: string;
+  expires_at: number;
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'authenticating' | 'connected' | 'error';
