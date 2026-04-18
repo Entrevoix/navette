@@ -9,12 +9,21 @@
     "splash": {
       "backgroundColor": "#0a0a0a"
     },
+    "ios": {
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "clauded uses speech recognition to transcribe voice prompts.",
+        "NSMicrophoneUsageDescription": "clauded uses the microphone to capture voice prompts."
+      }
+    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0a0a"
       },
-      "package": "com.clauded.mobile"
+      "package": "com.clauded.mobile",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       "expo-secure-store"

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { ChatView } from '../components/ChatView';
 import { EventFeed } from '../components/EventFeed';
+import { VoiceButton } from '../components/VoiceButton';
 import { SettingsScreen } from './SettingsScreen';
 import { ConnectionStatus, EventFrame, PendingApproval, SessionStatus } from '../types';
 import type { NotifyConfig } from '../hooks/useClaudedWS';
@@ -58,6 +59,7 @@ export function MainScreen({
   onRequestNotifyConfig,
 }: MainScreenProps) {
   const [prompt, setPrompt] = useState('');
+  const [isVoiceInterim, setIsVoiceInterim] = useState(false);
   const [container, setContainer] = useState(defaultContainer ?? '');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
@@ -110,11 +112,17 @@ export function MainScreen({
     }
   };
 
+  const handleVoiceTranscript = (text: string, isFinal: boolean) => {
+    setPrompt(text);
+    setIsVoiceInterim(!isFinal);
+  };
+
   const handleRun = () => {
     const p = prompt.trim();
     if (!p) return;
     onRun(p, container.trim() || undefined, dangerouslySkipPermissions);
     setPrompt('');
+    setIsVoiceInterim(false);
   };
 
   const handleShareLog = async () => {
@@ -172,16 +180,19 @@ export function MainScreen({
       {/* New session input (only when idle) */}
       {!isRunning && (
         <View style={styles.runPanel}>
-          <TextInput
-            style={[styles.input, styles.promptInput]}
-            value={prompt}
-            onChangeText={setPrompt}
-            placeholder="What should Claude do?"
-            placeholderTextColor="#444"
-            multiline
-            autoCorrect={false}
-            onSubmitEditing={handleRun}
-          />
+          <View style={styles.promptRow}>
+            <TextInput
+              style={[styles.input, styles.promptInput, isVoiceInterim && styles.promptInterim]}
+              value={prompt}
+              onChangeText={(t: string) => { setPrompt(t); setIsVoiceInterim(false); }}
+              placeholder="What should Claude do?"
+              placeholderTextColor="#444"
+              multiline
+              autoCorrect={false}
+              onSubmitEditing={handleRun}
+            />
+            <VoiceButton onTranscript={handleVoiceTranscript} />
+          </View>
           <View style={styles.runRow}>
             <TextInput
               style={[styles.input, styles.containerInput]}
@@ -329,7 +340,9 @@ const styles = StyleSheet.create({
     color: '#f0f0f0',
     fontSize: 14,
   },
-  promptInput: { minHeight: 52, maxHeight: 120, textAlignVertical: 'top' },
+  promptRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  promptInput: { flex: 1, minHeight: 52, maxHeight: 120, textAlignVertical: 'top' },
+  promptInterim: { color: '#888' },
   runRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   containerInput: { flex: 1, fontSize: 13 },
   runBtn: { backgroundColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
