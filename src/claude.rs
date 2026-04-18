@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 
 use crate::PendingApprovals;
 use crate::db;
+use crate::ws::EventTx;
 
 const MAX_PAYLOAD: usize = 65_536; // 64 KiB
 
@@ -15,6 +16,7 @@ pub async fn spawn_and_process(
     prompt: &str,
     db: Arc<Mutex<Connection>>,
     _pending: PendingApprovals,
+    events_tx: EventTx,
 ) -> Result<()> {
     write_hook_settings().context("failed to write hook settings")?;
 
@@ -97,12 +99,16 @@ pub async fn spawn_and_process(
         };
 
         let db_ref = db.clone();
+        let stored_for_db = stored.clone();
         let seq = tokio::task::spawn_blocking(move || {
             let conn = db_ref.lock().unwrap();
-            db::insert_event(&conn, now, &stored)
+            db::insert_event(&conn, now, &stored_for_db)
         })
         .await
         .context("spawn_blocking panicked")??;
+
+        // Broadcast to WebSocket clients (best-effort — ignore if no subscribers)
+        let _ = events_tx.send((seq, now, stored));
 
         event_count += 1;
         if event_count % 100 == 0 {
