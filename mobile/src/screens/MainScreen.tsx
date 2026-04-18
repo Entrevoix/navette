@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -12,12 +13,15 @@ import { DirPicker } from '../components/DirPicker';
 import { EventFeed } from '../components/EventFeed';
 import { VoiceButton } from '../components/VoiceButton';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DirListingEvent, EventFrame, PendingApproval, SessionStatus } from '../types';
+import { ConnectionStatus, DirListingEvent, EventFrame, PendingApproval, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig } from '../hooks/useClaudedWS';
 
 interface MainScreenProps {
   status: ConnectionStatus;
   sessionStatus: SessionStatus;
+  sessions: SessionInfo[];
+  activeSessionId: string | null;
+  onSetActiveSessionId: (id: string | null) => void;
   events: EventFrame[];
   pendingApprovals: PendingApproval[];
   lastSeq: number;
@@ -27,7 +31,7 @@ interface MainScreenProps {
   onDecide: (tool_use_id: string, allow: boolean) => void;
   onDisconnect: () => void;
   onRun: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string) => void;
-  onKill: () => void;
+  onKill: (sessionId?: string) => void;
   onRequestNotifyConfig: () => void;
   listDir: (path: string, cb: (ev: DirListingEvent) => void) => void;
 }
@@ -50,6 +54,9 @@ function formatElapsed(seconds: number): string {
 export function MainScreen({
   status,
   sessionStatus,
+  sessions,
+  activeSessionId,
+  onSetActiveSessionId,
   events,
   pendingApprovals,
   lastSeq,
@@ -166,7 +173,7 @@ export function MainScreen({
             <Text style={styles.gearText}>⚙</Text>
           </Pressable>
           {isRunning ? (
-            <Pressable onPress={onKill} style={styles.killBtn}>
+            <Pressable onPress={() => onKill(activeSessionId ?? undefined)} style={styles.killBtn}>
               <Text style={styles.killText}>Kill</Text>
             </Pressable>
           ) : (
@@ -177,12 +184,38 @@ export function MainScreen({
         </View>
       </View>
 
+      {/* Session pill switcher */}
+      {sessions.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.pillsRow}
+          contentContainerStyle={styles.pillsContent}
+        >
+          {sessions.map(s => (
+            <Pressable
+              key={s.session_id}
+              style={[styles.pill, s.session_id === activeSessionId && styles.pillActive]}
+              onPress={() => onSetActiveSessionId(s.session_id)}
+            >
+              <Text
+                numberOfLines={1}
+                style={[styles.pillText, s.session_id === activeSessionId && styles.pillTextActive]}
+              >
+                {s.container ?? s.prompt.split(' ').slice(0, 3).join(' ')}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
       {/* Chat view — primary content */}
       <ChatView
         events={events}
         pendingApprovals={pendingApprovals}
         onDecide={onDecide}
         viewStartSeq={viewStartSeq}
+        activeSessionId={activeSessionId}
       />
 
       {/* New session input (only when idle) */}
@@ -394,6 +427,34 @@ const styles = StyleSheet.create({
   skipPermsTextOn: { color: '#f87171', fontWeight: '700' },
   skipPermsToggleConfirming: { borderColor: '#78350f', backgroundColor: '#1c110a' },
   skipPermsTextConfirming: { color: '#fbbf24', fontWeight: '600' },
+
+  pillsRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+    maxHeight: 44,
+  },
+  pillsContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  pill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#0d0d0d',
+    maxWidth: 160,
+  },
+  pillActive: {
+    borderColor: '#4ade80',
+    backgroundColor: '#14280f',
+  },
+  pillText: { color: '#71717a', fontSize: 12, fontWeight: '500' },
+  pillTextActive: { color: '#4ade80', fontWeight: '700' },
 
   logDrawer: {
     borderTopWidth: 1,

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, AssistantEvent, ToolUseBlock, DirListingEvent } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent } from '../types';
 
 const LAST_SEQ_KEY = 'clauded_last_seq';
 
@@ -14,6 +14,9 @@ export interface NotifyConfig {
 interface UseClaudedWSResult {
   status: ConnectionStatus;
   sessionStatus: SessionStatus;
+  sessions: SessionInfo[];
+  activeSessionId: string | null;
+  setActiveSessionId: (id: string | null) => void;
   events: EventFrame[];
   pendingApprovals: PendingApproval[];
   lastSeq: number;
@@ -23,14 +26,15 @@ interface UseClaudedWSResult {
   disconnect: () => void;
   decide: (tool_use_id: string, allow: boolean) => void;
   run: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string) => void;
-  kill: () => void;
+  kill: (sessionId?: string) => void;
   getNotifyConfig: () => void;
   listDir: (path: string, cb: (ev: DirListingEvent) => void) => void;
 }
 
 export function useClaudedWS(): UseClaudedWSResult {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const [sessionStatus, setSessionStatus] = useState<SessionStatus>('idle');
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [events, setEvents] = useState<EventFrame[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [lastSeq, setLastSeq] = useState(0);
@@ -41,8 +45,10 @@ export function useClaudedWS(): UseClaudedWSResult {
   const lastSeqRef = useRef(0);
   const storedSinceRef = useRef(0);
   const resolvedToolIds = useRef<Set<string>>(new Set<string>());
-  const sessionRunningRef = useRef(false);
   const dirListingCallbackRef = useRef<((ev: DirListingEvent) => void) | null>(null);
+
+  // Derived: is any session running?
+  const sessionStatus: SessionStatus = sessions.length > 0 ? 'running' : 'idle';
 
   useEffect(() => {
     AsyncStorage.getItem(LAST_SEQ_KEY).then((val: string | null) => {
@@ -81,11 +87,14 @@ export function useClaudedWS(): UseClaudedWSResult {
     wsRef.current?.send(JSON.stringify({ type: 'list_dir', path }));
   }, []);
 
-  const kill = useCallback(() => {
+  const kill = useCallback((sessionId?: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'kill_session' }));
+      wsRef.current.send(JSON.stringify({
+        type: 'kill_session',
+        session_id: sessionId ?? activeSessionId ?? '',
+      }));
     }
-  }, []);
+  }, [activeSessionId]);
 
   const getNotifyConfig = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -98,7 +107,8 @@ export function useClaudedWS(): UseClaudedWSResult {
     wsRef.current?.close();
     wsRef.current = null;
     setStatus('disconnected');
-    setSessionStatus('idle');
+    setSessions([]);
+    setActiveSessionId(null);
     setNotifyConfig(null);
   }, []);
 
@@ -106,15 +116,28 @@ export function useClaudedWS(): UseClaudedWSResult {
     const event = frame.event;
 
     if (event.type === 'session_started') {
-      sessionRunningRef.current = true;
-      setSessionStatus('running');
-      resolvedToolIds.current = new Set<string>();
       return;
     }
     if (event.type === 'session_ended') {
-      sessionRunningRef.current = false;
-      setSessionStatus('idle');
       setPendingApprovals([]);
+      return;
+    }
+
+    if (event.type === 'session_list_changed') {
+      const newSessions = ((event as unknown as { sessions?: SessionInfo[] }).sessions ?? []);
+      setSessions(newSessions);
+      // Auto-select active session if current is gone or none selected
+      setActiveSessionId(prev => {
+        if (newSessions.length === 0) return null;
+        if (prev && newSessions.some(s => s.session_id === prev)) return prev;
+        return newSessions[0].session_id;
+      });
+      return;
+    }
+
+    if (event.type === 'run_accepted') {
+      const sid = (event as unknown as { session_id?: string }).session_id;
+      if (sid) setActiveSessionId(sid);
       return;
     }
 
@@ -148,8 +171,6 @@ export function useClaudedWS(): UseClaudedWSResult {
       }
     }
 
-    // Claude emits tool results as content blocks inside user messages, not as top-level
-    // tool_result events. Parse these to resolve any pending approval cards.
     if (event.type === 'user') {
       const content = (event as { type: 'user'; message?: { content?: unknown[] } }).message?.content ?? [];
       for (const block of content) {
@@ -210,12 +231,16 @@ export function useClaudedWS(): UseClaudedWSResult {
       const msgType = msg['type'] as string | undefined;
 
       if (msgType === 'welcome') {
-        const running = msg['session_running'] as boolean | undefined;
+        const serverSessions = (msg['sessions'] as SessionInfo[] | undefined) ?? [];
         const serverHeadSeq = msg['head_seq'] as number | undefined;
         const effectiveSince = (serverHeadSeq !== undefined && since > serverHeadSeq) ? 0 : since;
 
-        sessionRunningRef.current = running ?? false;
-        setSessionStatus(running ? 'running' : 'idle');
+        setSessions(serverSessions);
+        if (serverSessions.length > 0) {
+          setActiveSessionId(serverSessions[0].session_id);
+        } else {
+          setActiveSessionId(null);
+        }
         setStatus('connecting');
 
         setEvents([]);
@@ -238,7 +263,7 @@ export function useClaudedWS(): UseClaudedWSResult {
       if (msgType === 'caught-up') {
         setStatus('connected');
         AsyncStorage.setItem(LAST_SEQ_KEY, String(lastSeqRef.current));
-        if (!sessionRunningRef.current) {
+        if (sessions.length === 0) {
           setPendingApprovals([]);
         }
         return;
@@ -271,15 +296,31 @@ export function useClaudedWS(): UseClaudedWSResult {
     ws.onclose = () => {
       if (wsRef.current !== ws) return;
       setStatus('disconnected');
-      if (sessionRunningRef.current) {
-        sessionRunningRef.current = false;
-        setSessionStatus('idle');
-        setPendingApprovals([]);
-      }
+      setSessions([]);
+      setActiveSessionId(null);
+      setPendingApprovals([]);
     };
-  }, [processEvent]);
+  }, [processEvent, sessions.length]);
 
   useEffect(() => () => { wsRef.current?.close(); }, []);
 
-  return { status, sessionStatus, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, connect, disconnect, decide, run, kill, getNotifyConfig, listDir };
+  return {
+    status,
+    sessionStatus,
+    sessions,
+    activeSessionId,
+    setActiveSessionId,
+    events,
+    pendingApprovals,
+    lastSeq,
+    viewStartSeq,
+    notifyConfig,
+    connect,
+    disconnect,
+    decide,
+    run,
+    kill,
+    getNotifyConfig,
+    listDir,
+  };
 }

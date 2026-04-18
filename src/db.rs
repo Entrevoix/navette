@@ -17,14 +17,20 @@ pub fn open() -> Result<Connection> {
          );",
     )
     .context("failed to initialize schema")?;
+    // Migration: add session_id column for multi-session support (idempotent).
+    let _ = conn.execute(
+        "ALTER TABLE events ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
+        [],
+    );
     tracing::info!("DB opened at {}", db_path.display());
     Ok(conn)
 }
 
 /// Insert one event. Returns the assigned seq number.
+/// session_id is auto-extracted from the JSON payload via json_extract.
 pub fn insert_event(conn: &Connection, ts: f64, json: &str) -> Result<i64> {
     conn.execute(
-        "INSERT INTO events (ts, json) VALUES (?1, ?2)",
+        "INSERT INTO events (ts, json, session_id) VALUES (?1, ?2, COALESCE(json_extract(?2, '$.session_id'), ''))",
         rusqlite::params![ts, json],
     )
     .context("insert_event failed")?;

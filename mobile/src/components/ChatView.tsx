@@ -21,6 +21,7 @@ interface ChatViewProps {
   pendingApprovals: PendingApproval[];
   onDecide: (tool_use_id: string, allow: boolean) => void;
   viewStartSeq: number;
+  activeSessionId?: string | null;
 }
 
 function buildResultMap(events: EventFrame[]): Map<string, string> {
@@ -142,13 +143,16 @@ const tcStyles = StyleSheet.create({
   },
 });
 
-export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq }: ChatViewProps) {
+export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq, activeSessionId }: ChatViewProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => { setShowHistory(false); }, [viewStartSeq]);
 
-  const visibleEvents = showHistory ? events : events.filter(f => f.seq > viewStartSeq);
+  const sessionEvents = activeSessionId
+    ? events.filter(f => (f.event as { session_id?: string }).session_id === activeSessionId)
+    : events;
+  const visibleEvents = showHistory ? sessionEvents : sessionEvents.filter(f => f.seq > viewStartSeq);
   const resultMap = buildResultMap(visibleEvents);
   const pendingMap = new Map(pendingApprovals.map(a => [a.tool_use_id, a]));
 
@@ -226,7 +230,7 @@ export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq }: C
     }
   }
 
-  const hasHistory = events.some(f => f.seq <= viewStartSeq);
+  const hasHistory = sessionEvents.some(f => f.seq <= viewStartSeq);
 
   if (items.length === 0 && !hasHistory) {
     return (

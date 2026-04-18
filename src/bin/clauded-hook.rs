@@ -32,6 +32,7 @@ struct HookInput {
 struct HookRequest {
     tool_use_id: String,
     tool_name: String,
+    session_id: String,
     input: Value,
 }
 
@@ -93,9 +94,11 @@ async fn run(stdin_buf: String) -> Result<i32> {
     .with_context(|| format!("failed to connect to {socket_path}"))?;
 
     // Send request JSON followed by EOF so the daemon knows we're done writing.
+    let session_id = std::env::var("CLAUDED_SESSION_ID").unwrap_or_default();
     let request = HookRequest {
         tool_use_id: hook_input.tool_use_id,
         tool_name: hook_input.tool_name,
+        session_id,
         input: hook_input.tool_input,
     };
     let request_bytes = serde_json::to_vec(&request).context("failed to serialize request")?;

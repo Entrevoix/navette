@@ -70,6 +70,13 @@ export interface ApprovalPendingEvent {
   expires_at: number;
 }
 
+export interface SessionInfo {
+  session_id: string;
+  prompt: string;
+  container?: string | null;
+  started_at: number;
+}
+
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'authenticating' | 'connected' | 'error';
 
 export type SessionStatus = 'idle' | 'running';

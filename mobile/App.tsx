@@ -12,7 +12,7 @@ import { ServerConfig } from './src/types';
 const LAST_CONFIG_KEY = 'clauded_last_config';
 
 export default function App() {
-  const { status, sessionStatus, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, connect, disconnect, decide, run, kill, getNotifyConfig, listDir } = useClaudedWS();
+  const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, connect, disconnect, decide, run, kill, getNotifyConfig, listDir } = useClaudedWS();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [isLocked, setIsLocked] = useState(false);
 
@@ -101,6 +101,9 @@ export default function App() {
           <MainScreen
             status={status}
             sessionStatus={sessionStatus}
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSetActiveSessionId={setActiveSessionId}
             events={events}
             pendingApprovals={pendingApprovals}
             lastSeq={lastSeq}

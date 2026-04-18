@@ -20,6 +20,7 @@ pub async fn spawn_and_process(
     container: Option<&str>,
     dangerously_skip_permissions: bool,
     work_dir: Option<&str>,
+    session_id: &str,
     kill_rx: oneshot::Receiver<()>,
     db: Arc<Mutex<Connection>>,
     _pending: PendingApprovals,
@@ -75,6 +76,7 @@ pub async fn spawn_and_process(
     if let Some(dir) = work_dir {
         cmd.cwd(dir);
     }
+    cmd.env("CLAUDED_SESSION_ID", session_id);
 
     let mut child = pair
         .slave
@@ -145,17 +147,25 @@ pub async fn spawn_and_process(
             line.clone()
         };
 
+        // Inject session_id so each event is tagged with the owning session.
+        let enriched = if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&stored) {
+            v["session_id"] = serde_json::Value::String(session_id.to_string());
+            serde_json::to_string(&v).unwrap_or(stored)
+        } else {
+            stored
+        };
+
         let db_ref = db.clone();
-        let stored_for_db = stored.clone();
+        let enriched_for_db = enriched.clone();
         let seq = tokio::task::spawn_blocking(move || {
             let conn = db_ref.lock().unwrap();
-            db::insert_event(&conn, now, &stored_for_db)
+            db::insert_event(&conn, now, &enriched_for_db)
         })
         .await
         .context("spawn_blocking panicked")??;
 
         // Broadcast to WebSocket clients (best-effort — ignore if no subscribers)
-        let _ = events_tx.send((seq, now, stored));
+        let _ = events_tx.send((seq, now, enriched));
 
         event_count += 1;
         if event_count % 100 == 0 {

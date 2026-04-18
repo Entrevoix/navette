@@ -17,6 +17,7 @@ pub struct Config {
     pub ws_port: u16,
     pub approval_ttl_secs: u64,
     pub approval_warn_before_secs: u64,
+    pub max_concurrent_sessions: usize,
     pub notify: NotifyConfig,
 }
 
@@ -45,6 +46,10 @@ pub fn load_or_create() -> Result<Config> {
             .get("approval_warn_before_secs")
             .and_then(|v| v.as_integer())
             .unwrap_or(30) as u64;
+        let max_concurrent_sessions = table
+            .get("max_concurrent_sessions")
+            .and_then(|v| v.as_integer())
+            .unwrap_or(4) as usize;
         let ntfy_base_url = table
             .get("ntfy_base_url")
             .and_then(|v| v.as_str())
@@ -79,6 +84,7 @@ pub fn load_or_create() -> Result<Config> {
             ws_port,
             approval_ttl_secs,
             approval_warn_before_secs,
+            max_concurrent_sessions,
             notify: NotifyConfig { ntfy_base_url, ntfy_topic, ntfy_token },
         });
     }
@@ -92,7 +98,7 @@ pub fn load_or_create() -> Result<Config> {
         .with_context(|| format!("failed to create {}", dir.display()))?;
 
     let content = format!(
-        "token = \"{token}\"\nws_port = 7878\napproval_ttl_secs = 300\napproval_warn_before_secs = 30\nntfy_base_url = \"https://ntfy.sh\"\nntfy_topic = \"{ntfy_topic}\"\nntfy_token = \"\"\n"
+        "token = \"{token}\"\nws_port = 7878\napproval_ttl_secs = 300\napproval_warn_before_secs = 30\nmax_concurrent_sessions = 4\nntfy_base_url = \"https://ntfy.sh\"\nntfy_topic = \"{ntfy_topic}\"\nntfy_token = \"\"\n"
     );
 
     std::fs::OpenOptions::new()
@@ -119,6 +125,7 @@ pub fn load_or_create() -> Result<Config> {
         ws_port: 7878,
         approval_ttl_secs: 300,
         approval_warn_before_secs: 30,
+        max_concurrent_sessions: 4,
         notify: NotifyConfig {
             ntfy_base_url: "https://ntfy.sh".to_string(),
             ntfy_topic,

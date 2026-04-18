@@ -1,17 +1,17 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
+use rand::Rng;
 use rusqlite::Connection;
 use serde_json::Value;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, oneshot};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::config::Config;
 use crate::db;
-use crate::{BufferedDecisions, Decision, KillSwitch, PendingApprovals, RunRequest};
+use crate::{BufferedDecisions, Decision, PendingApprovals, Sessions};
 
 /// Broadcast channel payload: (seq, unix_ts, raw_json_string)
 pub type EventTx = broadcast::Sender<(i64, f64, String)>;
@@ -23,9 +23,8 @@ pub async fn serve(
     pending: PendingApprovals,
     buffered: BufferedDecisions,
     events_tx: EventTx,
-    run_tx: mpsc::Sender<RunRequest>,
-    session_running: Arc<AtomicBool>,
-    kill_switch: KillSwitch,
+    sessions: Sessions,
+    max_concurrent: usize,
     cfg: Arc<Config>,
 ) -> Result<()> {
     let addr = format!("0.0.0.0:{port}");
@@ -43,9 +42,8 @@ pub async fn serve(
                 let pending = pending.clone();
                 let events_rx = events_tx.subscribe();
                 let buffered = buffered.clone();
-                let run_tx = run_tx.clone();
-                let session_running = session_running.clone();
-                let kill_switch = kill_switch.clone();
+                let sessions = sessions.clone();
+                let events_tx = events_tx.clone();
                 let cfg = cfg.clone();
                 tokio::spawn(async move {
                     if let Err(e) = handle_ws(
@@ -55,9 +53,9 @@ pub async fn serve(
                         pending,
                         buffered,
                         events_rx,
-                        run_tx,
-                        session_running,
-                        kill_switch,
+                        events_tx,
+                        sessions,
+                        max_concurrent,
                         cfg,
                     )
                     .await
@@ -79,9 +77,9 @@ async fn handle_ws(
     pending: PendingApprovals,
     buffered: BufferedDecisions,
     mut events_rx: broadcast::Receiver<(i64, f64, String)>,
-    run_tx: mpsc::Sender<RunRequest>,
-    session_running: Arc<AtomicBool>,
-    kill_switch: KillSwitch,
+    events_tx: EventTx,
+    sessions: Sessions,
+    max_concurrent: usize,
     cfg: Arc<Config>,
 ) -> Result<()> {
     let ws = accept_async(stream).await.context("WS upgrade failed")?;
@@ -110,15 +108,15 @@ async fn handle_ws(
         _ => return Ok(()),
     };
 
-    let is_running = session_running.load(Ordering::SeqCst);
     let head_seq = {
         let conn = db.lock().unwrap();
         db::head_seq(&conn).unwrap_or(0)
     };
-    sink.send(welcome(&client_id, is_running, head_seq))
+    let sessions_list = crate::sessions_snapshot(&sessions).await;
+    sink.send(welcome(&client_id, head_seq, &sessions_list))
         .await
         .context("failed to send welcome")?;
-    tracing::info!(%client_id, session_running = is_running, "WS authenticated");
+    tracing::info!(%client_id, "WS authenticated");
 
     // ── Phase 2: Attach + replay ──────────────────────────────────────────────
     let mut since: i64 = 0;
@@ -134,8 +132,7 @@ async fn handle_ws(
                     since = since_msg.get("since").and_then(|v| v.as_i64()).unwrap_or(0);
                 }
             } else {
-                handle_input(&msg, &client_id, &pending, &buffered, &run_tx, &session_running, &kill_switch)
-                    .await;
+                handle_input(&msg, &client_id, &pending, &buffered).await;
             }
         }
         Some(Ok(Message::Close(_))) | None => return Ok(()),
@@ -189,7 +186,85 @@ async fn handle_ws(
                     Some(Ok(Message::Text(txt))) => {
                         if let Ok(v) = serde_json::from_str::<Value>(&txt) {
                             let msg_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                            if msg_type == "get_notify_config" {
+                            if msg_type == "run" {
+                                let session_count = sessions.lock().await.len();
+                                if session_count >= max_concurrent {
+                                    let reply = serde_json::to_string(
+                                        &serde_json::json!({"type": "session_busy", "max": max_concurrent})
+                                    ).unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                } else if let Some(prompt) = v.get("prompt").and_then(|p| p.as_str()) {
+                                    let container = v
+                                        .get("container")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string());
+                                    let dangerously_skip_permissions = v
+                                        .get("dangerously_skip_permissions")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+                                    let work_dir = v
+                                        .get("work_dir")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string());
+
+                                    let session_id = new_session_id();
+                                    let (kill_tx, kill_rx) = oneshot::channel::<()>();
+
+                                    sessions.lock().await.insert(session_id.clone(), crate::SessionEntry {
+                                        prompt: prompt.to_string(),
+                                        container: container.clone(),
+                                        started_at: unix_ts(),
+                                        kill_tx: Some(kill_tx),
+                                    });
+                                    crate::emit_session_list_changed(&sessions, &events_tx).await;
+
+                                    let req = crate::RunRequest {
+                                        prompt: prompt.to_string(),
+                                        container,
+                                        dangerously_skip_permissions,
+                                        work_dir,
+                                    };
+                                    tokio::spawn(crate::run_session(
+                                        session_id.clone(),
+                                        req,
+                                        sessions.clone(),
+                                        db.clone(),
+                                        pending.clone(),
+                                        events_tx.clone(),
+                                        kill_rx,
+                                    ));
+                                    tracing::info!(%client_id, %session_id, "spawned session");
+
+                                    let reply = serde_json::to_string(
+                                        &serde_json::json!({"type": "run_accepted", "session_id": session_id})
+                                    ).unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "kill_session" {
+                                let session_id = v.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+                                if let Some(entry) = sessions.lock().await.get_mut(session_id) {
+                                    if let Some(tx) = entry.kill_tx.take() {
+                                        let _ = tx.send(());
+                                        tracing::info!(%client_id, %session_id, "kill_session: terminating");
+                                    }
+                                } else {
+                                    tracing::warn!(%client_id, %session_id, "kill_session: session not found");
+                                }
+                            } else if msg_type == "list_sessions" {
+                                let list = crate::sessions_snapshot(&sessions).await;
+                                let reply = serde_json::to_string(
+                                    &serde_json::json!({"type": "sessions_list", "sessions": list})
+                                ).unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "get_notify_config" {
                                 let reply = serde_json::to_string(&serde_json::json!({
                                     "type": "notify_config",
                                     "topic": cfg.notify.ntfy_topic,
@@ -259,7 +334,7 @@ async fn handle_ws(
                                     }
                                 }
                             } else {
-                                handle_input(&v, &client_id, &pending, &buffered, &run_tx, &session_running, &kill_switch).await;
+                                handle_input(&v, &client_id, &pending, &buffered).await;
                             }
                         }
                     }
@@ -284,79 +359,30 @@ async fn handle_input(
     client_id: &str,
     pending: &PendingApprovals,
     buffered: &BufferedDecisions,
-    run_tx: &mpsc::Sender<RunRequest>,
-    session_running: &Arc<AtomicBool>,
-    kill_switch: &KillSwitch,
 ) {
     let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-    match msg_type {
-        "input" => {
-            let Some(tool_use_id) = msg.get("tool_use_id").and_then(|v| v.as_str()) else {
-                return;
-            };
-            let decision_str = msg.get("decision").and_then(|v| v.as_str()).unwrap_or("n");
-            let decision = if decision_str == "y" {
-                Decision::Allow
-            } else {
-                Decision::Deny
-            };
+    if msg_type == "input" {
+        let Some(tool_use_id) = msg.get("tool_use_id").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let decision_str = msg.get("decision").and_then(|v| v.as_str()).unwrap_or("n");
+        let decision = if decision_str == "y" {
+            Decision::Allow
+        } else {
+            Decision::Deny
+        };
 
-            if let Some(tx) = pending.lock().await.remove(tool_use_id) {
-                let _ = tx.send(decision);
-                tracing::info!(%client_id, %tool_use_id, %decision_str, "WS approval resolved");
-            } else {
-                buffered
-                    .lock()
-                    .await
-                    .insert(tool_use_id.to_string(), decision);
-                tracing::info!(%client_id, %tool_use_id, %decision_str, "decision buffered (hook not yet registered)");
-            }
+        if let Some(tx) = pending.lock().await.remove(tool_use_id) {
+            let _ = tx.send(decision);
+            tracing::info!(%client_id, %tool_use_id, %decision_str, "WS approval resolved");
+        } else {
+            buffered
+                .lock()
+                .await
+                .insert(tool_use_id.to_string(), decision);
+            tracing::info!(%client_id, %tool_use_id, %decision_str, "decision buffered (hook not yet registered)");
         }
-        "run" => {
-            if session_running.load(Ordering::SeqCst) {
-                tracing::warn!(%client_id, "run request ignored: session already running");
-                return;
-            }
-            let Some(prompt) = msg.get("prompt").and_then(|v| v.as_str()) else {
-                tracing::warn!(%client_id, "run request missing prompt");
-                return;
-            };
-            let container = msg
-                .get("container")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string());
-            let dangerously_skip_permissions = msg
-                .get("dangerously_skip_permissions")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let work_dir = msg
-                .get("work_dir")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string());
-
-            tracing::info!(%client_id, container = ?container, ?work_dir, dangerously_skip_permissions, "received run request");
-            let req = RunRequest {
-                prompt: prompt.to_string(),
-                container,
-                dangerously_skip_permissions,
-                work_dir,
-            };
-            if run_tx.try_send(req).is_err() {
-                tracing::warn!(%client_id, "run_tx full or closed");
-            }
-        }
-        "kill_session" => {
-            if let Some(tx) = kill_switch.lock().await.take() {
-                let _ = tx.send(());
-                tracing::info!(%client_id, "kill_session: terminating running session");
-            } else {
-                tracing::warn!(%client_id, "kill_session: no session running");
-            }
-        }
-        _ => {}
     }
 }
 
@@ -370,12 +396,12 @@ fn event_frame(seq: i64, ts: f64, json: &str) -> Result<String> {
     .context("failed to serialize event frame")
 }
 
-fn welcome(client_id: &str, session_running: bool, head_seq: i64) -> Message {
+fn welcome(client_id: &str, head_seq: i64, sessions: &[serde_json::Value]) -> Message {
     Message::Text(
         serde_json::to_string(&serde_json::json!({
             "type": "welcome",
             "client_id": client_id,
-            "session_running": session_running,
+            "sessions": sessions,
             "head_seq": head_seq,
         }))
         .unwrap(),
@@ -390,4 +416,19 @@ fn rejected(reason: &str) -> Message {
         }))
         .unwrap(),
     )
+}
+
+fn new_session_id() -> String {
+    rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(16)
+        .map(char::from)
+        .collect()
+}
+
+fn unix_ts() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64()
 }
