@@ -8,12 +8,13 @@ Raw Termux+SSH works but the UX is painful: tiny keyboard, no context on reconne
 
 ```
 [claude --output-format stream-json]
-         ↕ stdin/stdout
+         ↑ stdout (events)
     [clauded — Rust daemon]
+         ├── PreToolUse hook → /internal/approval (IPC, blocks claude)
          ├── SQLite: event log (seq, ts, json)
          ├── WebSocket 0.0.0.0:7878
          │     ├── resume: {"since": N} → replay + live stream
-         │     └── input:  {"type":"input","text":"y"}
+         │     └── input:  {"type":"input","text":"y"} → approval decision
          ├── [React Native Android] — tool approval cards, session replay
          └── [Tauri desktop] — three-panel: sessions / conversation / diff
 ```
@@ -28,23 +29,42 @@ Network transport: [Tailscale](https://tailscale.com). No open ports. No cloud r
 2. **React Native Android** — bare minimum: tool approval cards + session replay
 3. **Tauri desktop** — three-panel layout, diff viewer (hermes-desktop scaffold)
 
-## Day-0 verification (run before writing daemon code)
+## Day-0 verification (completed — findings changed the architecture)
 
-The entire architecture depends on `claude --output-format stream-json` pausing on stdin for tool approval. Verify this first:
+**Result:** `claude --output-format stream-json -p "..."` does **not** pause on stdin for tool approval. The `-p` flag runs Claude non-interactively. On a tool call, Claude Code immediately emits `tool_result` with `permission_denials` and exits. stdin is not the gate.
 
-```bash
-stdbuf -oL claude --output-format stream-json --verbose \
-  -p "write hello to /tmp/test.txt" | while IFS= read -r line; do
-    echo "$(date +%s.%N) $line"
-    sleep 0.1
-done
+```
+tool_use  (Write /tmp/test.txt)   t=0ms
+tool_result → "you haven't granted it yet."  t=175ms
+result.permission_denials: [{"tool_name":"Write",...}]
+process exits
 ```
 
-**If output STOPS after the `tool_use` event** — stdin is the gate. Architecture works. Send `y` to stdin and confirm the tool executes.
+**The approval gate is Claude Code's hooks system**, not stdin.
 
-**If output CONTINUES through `tool_result`** — stream-json auto-approves. Pivot to Claude's hooks system or an MCP server wrapper.
+### How approval actually works
 
-Do not write the WebSocket layer until both checks pass.
+Claude Code runs a `PreToolUse` hook subprocess before each tool call. The hook:
+- Receives the full tool call as JSON on stdin
+- Exit 0 → allow
+- Exit 2 + stdout message → block with reason
+- **Blocks as long as it needs to** — this is the pause gate
+
+`clauded` ships a hook binary at `~/.config/clauded/hooks/pre-tool-use`. The hook POSTs to clauded's internal approval endpoint and blocks until the daemon responds. The daemon broadcasts the pending approval over WebSocket; the first client to respond wins.
+
+```
+[claude --output-format stream-json]
+    stdout → tool_use event → clauded (captures, logs to SQLite)
+    PreToolUse hook fires (blocking subprocess)
+        → hook POST /internal/approval  (IPC to clauded)
+        → clauded broadcasts pending_approval to WebSocket clients
+        → user approves/denies from phone or desktop
+        → clauded responds to hook
+        → hook exits 0 (allow) or 2 (deny)
+    stdout → tool_result event → clauded (captures, logs, broadcasts)
+```
+
+Do not write the WebSocket layer until you have a working PreToolUse hook that blocks and responds to an IPC signal.
 
 ## Protocol (v0)
 
@@ -80,18 +100,21 @@ After `attach`, all input on that connection is routed to that session. To switc
 
 ### Tool approval
 
+Approval is gated by a `PreToolUse` hook subprocess, not stdin. The hook blocks claude until the daemon resolves it.
+
 ```json
-// daemon broadcasts when tool_use event arrives:
+// hook fires → daemon receives IPC, broadcasts to all WebSocket clients:
 {"seq": 50, "event": {"type": "tool_use", "name": "Write", "input": {...}}}
 
 // first client to respond wins:
-{"type": "input", "text": "y"}
+{"type": "input", "text": "y"}   // or "n"
 
+// daemon resolves the IPC → hook exits 0 (allow) or 2 (deny)
 // daemon broadcasts resolution to all clients:
 {"type": "approval_resolved", "by": "client-id", "decision": "y"}
 ```
 
-Default approval timeout: 1800s (configurable). On timeout, daemon writes `n` to stdin and broadcasts `approval_timeout`.
+Default approval timeout: 1800s (configurable). On timeout, daemon resolves deny → hook exits 2 → broadcasts `approval_timeout`.
 
 ### Session states
 
