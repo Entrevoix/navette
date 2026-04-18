@@ -1,0 +1,83 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1776476880753,
+  "projectRoot": "/var/home/user/Documents/vibe-code/claude-desktop-ssh",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {},
+  "hotPaths": [
+    {
+      "path": "README.md",
+      "accessCount": 11,
+      "lastAccessed": 1776477249050,
+      "type": "file"
+    },
+    {
+      "path": "Cargo.toml",
+      "accessCount": 4,
+      "lastAccessed": 1776478833258,
+      "type": "file"
+    },
+    {
+      "path": "src/main.rs",
+      "accessCount": 3,
+      "lastAccessed": 1776478894477,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 1,
+      "lastAccessed": 1776478181361,
+      "type": "directory"
+    },
+    {
+      "path": "src/bin/clauded-hook.rs",
+      "accessCount": 1,
+      "lastAccessed": 1776478278318,
+      "type": "file"
+    },
+    {
+      "path": "src/db.rs",
+      "accessCount": 1,
+      "lastAccessed": 1776478846772,
+      "type": "file"
+    },
+    {
+      "path": "src/hook.rs",
+      "accessCount": 1,
+      "lastAccessed": 1776478862092,
+      "type": "file"
+    },
+    {
+      "path": "src/claude.rs",
+      "accessCount": 1,
+      "lastAccessed": 1776478879352,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
