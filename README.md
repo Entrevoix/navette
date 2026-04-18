@@ -176,6 +176,35 @@ IDLE ──spawn──► RUNNING ──tool_use──► PENDING_APPROVAL
 - Max payload: 64KB inline. Larger payloads truncated with `"truncated": true, "full_size_bytes": N`
 - Retention: 10,000 events per session (cleanup every 100 inserts)
 
+## Distrobox support
+
+Distrobox shares the host's network namespace and `$HOME`, so the daemon is nearly transparent:
+
+- **Network:** WebSocket on `0.0.0.0:7878` is visible to Tailscale on the host. No changes needed.
+- **Filesystem:** SQLite DBs (`~/.local/share/clauded/`) and hook socket (`$XDG_RUNTIME_DIR/clauded/hook.sock`) are on the host filesystem via bind-mounts. Persist across container restarts.
+- **Paths:** distrobox shares `$HOME`, so `cwd` paths in session spawn commands are identical inside and outside the container.
+
+**Running clauded persistently inside distrobox:**
+
+```ini
+# ~/.config/systemd/user/clauded.service  (on the host)
+[Unit]
+Description=clauded daemon (inside distrobox)
+After=network.target
+
+[Service]
+ExecStart=distrobox-enter --name mybox -- /home/user/.local/bin/clauded
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+If your distrobox uses `--init` (systemd inside the container), install the unit inside the box instead and enable it normally.
+
+Set `distrobox_name` in config to have clauded prefix all `claude` spawns with `distrobox-enter --name <name> --`. This lets clauded run on the host while `claude` runs inside the container.
+
 ## Configuration
 
 ```toml
@@ -185,8 +214,9 @@ IDLE ──spawn──► RUNNING ──tool_use──► PENDING_APPROVAL
 token = "your-shared-secret-here"  # rotate by changing + restart
 
 [daemon]
-claude_bin = "/usr/local/bin/claude"  # explicit path, don't rely on PATH
+claude_bin = "/home/user/.local/bin/claude"  # in-container path
 max_restarts = 1
+distrobox_name = "mybox"  # optional: prefix claude spawns with distrobox-enter
 
 [session]
 approval_timeout_seconds = 1800  # 30 min default
