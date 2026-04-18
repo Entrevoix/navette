@@ -1,9 +1,10 @@
+use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use rusqlite::Connection;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::sync::mpsc;
 
 use crate::PendingApprovals;
 use crate::db;
@@ -19,32 +20,75 @@ pub async fn spawn_and_process(
 
     let claude_bin = std::env::var("CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
 
-    let mut child = Command::new(&claude_bin)
-        .args([
-            "--output-format",
-            "stream-json",
-            "--dangerously-skip-permissions",
-            "--verbose",
-            "-p",
-            prompt,
-        ])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
+    // Open a PTY so Claude's isatty() returns true → interactive mode → PreToolUse hooks fire.
+    // With --output-format stream-json, output is machine-readable JSON even in TTY mode.
+    // Use a very wide column to prevent JSON line wrapping by the PTY.
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows: 50,
+            cols: 32_767,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .context("failed to open PTY")?;
+
+    let mut cmd = CommandBuilder::new(&claude_bin);
+    cmd.args([
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "-p",
+        prompt,
+    ]);
+
+    let mut child = pair
+        .slave
+        .spawn_command(cmd)
         .with_context(|| format!("failed to spawn {claude_bin}"))?;
 
-    let stdout = child.stdout.take().context("claude stdout was not captured")?;
-    let mut lines = BufReader::new(stdout).lines();
+    // Drop slave end — parent only needs the master.
+    drop(pair.slave);
+
+    // PTY master reader (blocking std::io::Read). Bridge to async via channel.
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .context("failed to clone PTY master reader")?;
+
+    let (tx, mut rx) = mpsc::channel::<String>(1024);
+
+    tokio::task::spawn_blocking(move || {
+        let br = BufReader::new(reader);
+        for line in br.lines() {
+            match line {
+                Ok(l) => {
+                    if tx.blocking_send(l).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
     let mut event_count: u64 = 0;
 
-    while let Some(line) = lines.next_line().await? {
+    while let Some(raw) = rx.recv().await {
+        // PTYs use \r\n; strip CR and any ANSI escape sequences.
+        let line = strip_ansi(raw.trim_end_matches('\r'));
         if line.trim().is_empty() {
+            continue;
+        }
+
+        // Only store lines that look like JSON events.
+        if !line.starts_with('{') {
+            tracing::debug!("non-json line from pty: {}", &line[..line.len().min(80)]);
             continue;
         }
 
         let now = unix_ts();
 
-        // Enforce payload cap
         let stored = if line.len() > MAX_PAYLOAD {
             tracing::warn!(full_size = line.len(), "event truncated (> 64 KiB)");
             db::truncate_payload(&line)
@@ -52,7 +96,6 @@ pub async fn spawn_and_process(
             line.clone()
         };
 
-        // Log to SQLite on a blocking thread (rusqlite is not async)
         let db_ref = db.clone();
         let seq = tokio::task::spawn_blocking(move || {
             let conn = db_ref.lock().unwrap();
@@ -61,7 +104,6 @@ pub async fn spawn_and_process(
         .await
         .context("spawn_blocking panicked")??;
 
-        // Enforce 10k event cap every 100 inserts
         event_count += 1;
         if event_count % 100 == 0 {
             let db_ref = db.clone();
@@ -73,7 +115,6 @@ pub async fn spawn_and_process(
             .context("spawn_blocking (retention) panicked")??;
         }
 
-        // Log event type for visibility
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
             let event_type = v
                 .get("type")
@@ -83,16 +124,43 @@ pub async fn spawn_and_process(
         }
     }
 
-    let status = child.wait().await?;
-    tracing::info!("claude exited with {status}");
+    tokio::task::spawn_blocking(move || child.wait())
+        .await
+        .context("spawn_blocking (child wait) panicked")?
+        .context("child wait failed")?;
 
+    tracing::info!("claude exited");
     Ok(())
 }
 
-/// Write PreToolUse hook config to ~/.claude/settings.local.json.
+/// Strip ANSI/VT100 escape sequences (e.g. \x1b[...m) from a string.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.peek() {
+                Some('[') => {
+                    chars.next();
+                    // Consume until final byte (ASCII letter or a few other terminators)
+                    for c2 in chars.by_ref() {
+                        if c2.is_ascii_alphabetic() || c2 == 'm' || c2 == 'J' || c2 == 'K' {
+                            break;
+                        }
+                    }
+                }
+                _ => {} // lone ESC — skip it
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Write PreToolUse hook config + tool permissions to ~/.claude/settings.local.json.
 /// Uses atomic tempfile + rename to avoid partial writes.
 fn write_hook_settings() -> Result<()> {
-    // clauded-hook lives next to clauded in the same bin directory
     let hook_bin = std::env::current_exe()
         .context("failed to determine current exe path")?
         .with_file_name("clauded-hook");
@@ -108,11 +176,24 @@ fn write_hook_settings() -> Result<()> {
         .to_str()
         .context("hook binary path contains non-UTF-8 characters")?;
 
+    // Pre-approve all tools so Claude doesn't prompt interactively. Permission mode
+    // stays "default" (not bypassPermissions), so PreToolUse hooks still fire.
     let settings = serde_json::json!({
+        "permissions": {
+            "allow": [
+                "Bash(*)", "Write(*)", "Read(*)", "Edit(*)", "MultiEdit(*)",
+                "Glob(*)", "Grep(*)", "LS(*)", "NotebookRead(*)", "NotebookEdit(*)",
+                "WebFetch(*)", "WebSearch(*)", "Task(*)", "TodoRead(*)", "TodoWrite(*)",
+                "mcp__*(*)"
+            ]
+        },
         "hooks": {
             "PreToolUse": [{
                 "matcher": ".*",
-                "command": hook_bin_str
+                "hooks": [{
+                    "type": "command",
+                    "command": hook_bin_str
+                }]
             }]
         }
     });
@@ -122,7 +203,6 @@ fn write_hook_settings() -> Result<()> {
     std::fs::create_dir_all(&claude_config).context("failed to create ~/.claude")?;
     let settings_path = claude_config.join("settings.local.json");
 
-    // Atomic write
     let tmp = settings_path.with_extension("tmp");
     std::fs::write(&tmp, serde_json::to_string_pretty(&settings)?)
         .context("failed to write settings tempfile")?;

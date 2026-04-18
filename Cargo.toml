@@ -19,3 +19,4 @@ anyhow = "1"
 rusqlite = { version = "0", features = ["bundled"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+portable-pty = "0.8"
