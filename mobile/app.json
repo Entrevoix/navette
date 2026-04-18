@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Clauded",
-    "slug": "clauded-mobile",
+    "name": "Relay",
+    "slug": "relay-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -11,8 +11,8 @@
     },
     "ios": {
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "clauded uses speech recognition to transcribe voice prompts.",
-        "NSMicrophoneUsageDescription": "clauded uses the microphone to capture voice prompts."
+        "NSSpeechRecognitionUsageDescription": "Relay uses speech recognition to transcribe voice prompts.",
+        "NSMicrophoneUsageDescription": "Relay uses the microphone to capture voice prompts."
       }
     },
     "android": {
@@ -20,7 +20,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0a0a"
       },
-      "package": "com.clauded.mobile",
+      "package": "io.github.bearyjd.relay",
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]

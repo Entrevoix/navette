@@ -37,7 +37,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
     const isEnrolled = await LocalAuthentication.isEnrolledAsync();
     if (hasHardware && isEnrolled) {
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Unlock clauded',
+        promptMessage: 'Unlock Relay',
         // Device passcode bypass disabled — app PIN is the fallback, not the device lock.
         disableDeviceFallback: true,
       });
@@ -106,7 +106,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.appName}>clauded</Text>
+      <Text style={styles.appName}>Relay</Text>
 
       {mode === 'biometric' && (
         <Text style={styles.subtitle}>Verifying identity…</Text>

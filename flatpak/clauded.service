@@ -1,0 +1,11 @@
+[Unit]
+Description=Relay — remote Claude Code session gateway
+After=network.target
+
+[Service]
+ExecStart=/app/bin/clauded
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

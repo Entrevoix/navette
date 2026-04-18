@@ -110,15 +110,15 @@ const tcStyles = StyleSheet.create({
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
   status: { fontSize: 12, width: 14 },
   statusDone: { color: '#4ade80' },
-  statusPending: { color: '#555' },
+  statusPending: { color: '#71717a' },
   toolName: { color: '#93c5fd', fontSize: 13, fontWeight: '600' },
   summary: {
-    color: '#555',
+    color: '#7e8ea0',
     fontSize: 12,
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     flex: 1,
   },
-  chevron: { color: '#444', fontSize: 10, marginLeft: 8 },
+  chevron: { color: '#6b7280', fontSize: 10, marginLeft: 8 },
   body: {
     paddingHorizontal: 12,
     paddingBottom: 10,
@@ -126,7 +126,7 @@ const tcStyles = StyleSheet.create({
     borderTopColor: '#1a1a1a',
   },
   code: {
-    color: '#aaa',
+    color: '#b8bfca',
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     fontSize: 11,
     lineHeight: 17,
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24, gap: 10 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  emptyText: { color: '#333', fontSize: 14 },
+  emptyText: { color: '#71717a', fontSize: 14 },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#1e1e1e' },
   dividerLabel: {
-    color: '#333',
+    color: '#6b7280',
     fontSize: 10,
     fontWeight: '600',
     textTransform: 'uppercase',

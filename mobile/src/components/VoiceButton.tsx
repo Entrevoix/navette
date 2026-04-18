@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text } from 'react-native';
 import Voice, { SpeechErrorEvent, SpeechResultsEvent } from '@react-native-voice/voice';
 
@@ -12,6 +12,33 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const [isListening, setIsListening] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
+
+  const startPulse = () => {
+    pulseAnim.setValue(1);
+    pulseLoop.current = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.3, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    pulseLoop.current.start();
+  };
+
+  const stopPulse = () => {
+    pulseLoop.current?.stop();
+    pulseAnim.setValue(1);
+  };
+
+  const stopListening = useCallback(async () => {
+    try {
+      await Voice.stop();
+    } catch {}
+    setIsListening(false);
+    stopPulse();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  // pulseLoop and pulseAnim are refs (stable); setIsListening is a stable setter
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     Voice.onSpeechPartialResults = (e: SpeechResultsEvent) => {
@@ -33,24 +60,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     return () => {
       Voice.destroy().then(() => Voice.removeAllListeners());
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onTranscript]);
-
-  const startPulse = () => {
-    pulseAnim.setValue(1);
-    pulseLoop.current = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.3, duration: 600, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-      ])
-    );
-    pulseLoop.current.start();
-  };
-
-  const stopPulse = () => {
-    pulseLoop.current?.stop();
-    pulseAnim.setValue(1);
-  };
+  }, [onTranscript, stopListening]);
 
   const startListening = async () => {
     try {
@@ -61,15 +71,6 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     } catch {
       // permission denied or unavailable — fail silently
     }
-  };
-
-  const stopListening = async () => {
-    try {
-      await Voice.stop();
-    } catch {}
-    setIsListening(false);
-    stopPulse();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   const handlePress = () => {
@@ -101,9 +102,9 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
 
 const styles = StyleSheet.create({
   btn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     borderWidth: 1,
     borderColor: '#2a2a2a',
     backgroundColor: '#0d0d0d',
@@ -114,14 +115,14 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.35 },
   ripple: {
     position: 'absolute',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: 'transparent',
   },
   rippleActive: {
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
   },
-  icon: { fontSize: 18 },
+  icon: { fontSize: 26 },
   iconActive: {},
 });

@@ -133,7 +133,7 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
-          <Text style={styles.title}>clauded</Text>
+          <Text style={styles.title}>Relay</Text>
           <Text style={styles.subtitle}>remote tool approval</Text>
 
           {status === 'error' && (
@@ -205,7 +205,7 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
             style={styles.input}
             value={token}
             onChangeText={setToken}
-            placeholder="from ~/.config/clauded/config.toml"
+            placeholder="from ~/.config/clauded/config.toml (token field)"
             placeholderTextColor="#555"
             autoCapitalize="none"
             autoCorrect={false}

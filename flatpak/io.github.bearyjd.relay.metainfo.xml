@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>io.github.bearyjd.relay</id>
+  <name>Relay</name>
+  <summary>Remote Claude Code session gateway</summary>
+  <description>
+    <p>Relay is a daemon that exposes a Claude Code session over a WebSocket,
+    enabling remote control, tool approval, and live output streaming from a
+    mobile device or any WebSocket client.</p>
+  </description>
+  <url type="homepage">https://github.com/bearyjd/relay</url>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <releases>
+    <release version="0.1.0" date="2026-04-18"/>
+  </releases>
+</component>

@@ -250,9 +250,9 @@ const styles = StyleSheet.create({
   },
   toolName: { color: '#93c5fd', fontWeight: '700', fontSize: 13, letterSpacing: 0.3 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  countdown: { color: '#555', fontSize: 12, fontVariant: ['tabular-nums'] },
+  countdown: { color: '#9ca3af', fontSize: 12, fontVariant: ['tabular-nums'] },
   countdownWarn: { color: '#f97316' },
-  seqLabel: { color: '#555', fontSize: 12 },
+  seqLabel: { color: '#9ca3af', fontSize: 12 },
 
   primaryField: {
     backgroundColor: '#0d0d0d',
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   primaryLabel: {
-    color: '#444',
+    color: '#71717a',
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -289,16 +289,16 @@ const styles = StyleSheet.create({
   inputScrollExpanded: { maxHeight: 280 },
   field: { marginBottom: 10 },
   fieldLabel: {
-    color: '#444',
+    color: '#71717a',
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 3,
   },
-  fieldValue: { color: '#888', fontSize: 12, lineHeight: 18 },
-  fieldValueCode: { fontFamily: MONO, color: '#888' },
-  expandHint: { color: '#2a2a2a', fontSize: 10, textAlign: 'right', marginTop: 4 },
+  fieldValue: { color: '#a8a8b0', fontSize: 12, lineHeight: 18 },
+  fieldValueCode: { fontFamily: MONO, color: '#a8a8b0' },
+  expandHint: { color: '#6b7280', fontSize: 10, textAlign: 'right', marginTop: 4 },
 
   actions: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   btn: { flex: 1, paddingVertical: 13, borderRadius: 8, alignItems: 'center' },
@@ -306,5 +306,5 @@ const styles = StyleSheet.create({
   denyBtn: { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#3f3f3f' },
   allowText: { color: '#4ade80', fontWeight: '700', fontSize: 15 },
   denyText: { color: '#888', fontWeight: '600', fontSize: 15 },
-  swipeHint: { textAlign: 'center', color: '#2e2e2e', fontSize: 11 },
+  swipeHint: { textAlign: 'center', color: '#52525b', fontSize: 11 },
 });

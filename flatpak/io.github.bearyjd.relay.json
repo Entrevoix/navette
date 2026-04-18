@@ -1,0 +1,40 @@
+{
+  "id": "io.github.bearyjd.relay",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "24.08",
+  "sdk": "org.freedesktop.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "command": "clauded",
+  "finish-args": [
+    "--share=network",
+    "--filesystem=home",
+    "--socket=session-bus",
+    "--talk-name=org.freedesktop.systemd1"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin",
+    "env": {
+      "CARGO_HOME": "/run/build/clauded/cargo-home",
+      "RUST_BACKTRACE": "1"
+    }
+  },
+  "modules": [
+    {
+      "name": "clauded",
+      "buildsystem": "simple",
+      "sources": [
+        {
+          "type": "dir",
+          "path": ".."
+        }
+      ],
+      "build-commands": [
+        "cargo build --release --offline --frozen",
+        "install -Dm755 target/release/clauded /app/bin/clauded",
+        "install -Dm755 target/release/clauded-hook /app/bin/clauded-hook",
+        "install -Dm644 flatpak/clauded.service /app/share/systemd/user/clauded.service",
+        "install -Dm644 flatpak/io.github.bearyjd.relay.metainfo.xml /app/share/metainfo/io.github.bearyjd.relay.metainfo.xml"
+      ]
+    }
+  ]
+}

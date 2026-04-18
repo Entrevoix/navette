@@ -186,7 +186,7 @@ export function MainScreen({
               value={prompt}
               onChangeText={(t: string) => { setPrompt(t); setIsVoiceInterim(false); }}
               placeholder="What should Claude do?"
-              placeholderTextColor="#444"
+              placeholderTextColor="#6b7280"
               multiline
               autoCorrect={false}
               onSubmitEditing={handleRun}
@@ -199,7 +199,7 @@ export function MainScreen({
               value={container}
               onChangeText={setContainer}
               placeholder="container (optional)"
-              placeholderTextColor="#444"
+              placeholderTextColor="#6b7280"
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -283,8 +283,8 @@ const styles = StyleSheet.create({
   },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  statusText: { color: '#888', fontSize: 13, fontWeight: '500' },
-  seqBadge: { color: '#444', fontSize: 11, marginLeft: 4 },
+  statusText: { color: '#a1a1aa', fontSize: 13, fontWeight: '500' },
+  seqBadge: { color: '#71717a', fontSize: 11, marginLeft: 4 },
   sessionBadge: {
     backgroundColor: '#14280f',
     borderRadius: 4,
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   gearText: {
-    color: '#555',
+    color: '#a1a1aa',
     fontSize: 18,
   },
   disconnectBtn: {
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2a2a2a',
   },
-  disconnectText: { color: '#555', fontSize: 13 },
+  disconnectText: { color: '#a1a1aa', fontSize: 13 },
   killBtn: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -342,7 +342,7 @@ const styles = StyleSheet.create({
   },
   promptRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   promptInput: { flex: 1, minHeight: 52, maxHeight: 120, textAlignVertical: 'top' },
-  promptInterim: { color: '#888' },
+  promptInterim: { color: '#94a3b8' },
   runRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   containerInput: { flex: 1, fontSize: 13 },
   runBtn: { backgroundColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
   skipPermsToggleOn: { borderColor: '#7f1d1d', backgroundColor: '#1c0a0a' },
   skipPermsIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#333' },
   skipPermsIndicatorOn: { backgroundColor: '#ef4444' },
-  skipPermsText: { color: '#444', fontSize: 12, fontWeight: '500' },
+  skipPermsText: { color: '#9ca3af', fontSize: 12, fontWeight: '500' },
   skipPermsTextOn: { color: '#f87171', fontWeight: '700' },
   skipPermsToggleConfirming: { borderColor: '#78350f', backgroundColor: '#1c110a' },
   skipPermsTextConfirming: { color: '#fbbf24', fontWeight: '600' },
@@ -379,7 +379,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   logLabel: {
-    color: '#444',
+    color: '#71717a',
     fontSize: 11,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -393,7 +393,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2a2a2a',
   },
-  shareBtnText: { color: '#555', fontSize: 11, fontWeight: '600' },
-  logChevron: { color: '#444', fontSize: 10 },
+  shareBtnText: { color: '#9ca3af', fontSize: 11, fontWeight: '600' },
+  logChevron: { color: '#71717a', fontSize: 10 },
   logBody: { maxHeight: 320 },
 });

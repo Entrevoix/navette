@@ -98,11 +98,13 @@ export function useClaudedWS(): UseClaudedWSResult {
     if (event.type === 'session_started') {
       sessionRunningRef.current = true;
       setSessionStatus('running');
+      resolvedToolIds.current = new Set<string>();
       return;
     }
     if (event.type === 'session_ended') {
       sessionRunningRef.current = false;
       setSessionStatus('idle');
+      setPendingApprovals([]);
       return;
     }
 
@@ -133,6 +135,21 @@ export function useClaudedWS(): UseClaudedWSResult {
         setPendingApprovals((prev: PendingApproval[]) =>
           prev.filter((p: PendingApproval) => p.tool_use_id !== toolUseId)
         );
+      }
+    }
+
+    // Claude emits tool results as content blocks inside user messages, not as top-level
+    // tool_result events. Parse these to resolve any pending approval cards.
+    if (event.type === 'user') {
+      const content = (event as { type: 'user'; message?: { content?: unknown[] } }).message?.content ?? [];
+      for (const block of content) {
+        const b = block as { type?: string; tool_use_id?: string };
+        if (b.type === 'tool_result' && b.tool_use_id) {
+          resolvedToolIds.current.add(b.tool_use_id);
+          setPendingApprovals((prev: PendingApproval[]) =>
+            prev.filter((p: PendingApproval) => p.tool_use_id !== b.tool_use_id)
+          );
+        }
       }
     }
 
@@ -237,7 +254,13 @@ export function useClaudedWS(): UseClaudedWSResult {
 
     ws.onerror = () => setStatus('error');
     ws.onclose = () => {
-      if (wsRef.current === ws) setStatus('disconnected');
+      if (wsRef.current !== ws) return;
+      setStatus('disconnected');
+      if (sessionRunningRef.current) {
+        sessionRunningRef.current = false;
+        setSessionStatus('idle');
+        setPendingApprovals([]);
+      }
     };
   }, [processEvent]);
 
