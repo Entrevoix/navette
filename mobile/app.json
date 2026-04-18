@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Clauded",
+    "slug": "clauded-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0a0a0a"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0a0a0a"
+      },
+      "package": "com.clauded.mobile"
+    },
+    "plugins": [
+      "expo-router",
+      "react-native-reanimated"
+    ]
+  }
+}
