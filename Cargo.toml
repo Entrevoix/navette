@@ -1,0 +1,18 @@
+[package]
+name = "clauded"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "clauded"
+path = "src/main.rs"
+
+[[bin]]
+name = "clauded-hook"
+path = "src/bin/clauded-hook.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "net", "time", "io-util"] }
+anyhow = "1"
