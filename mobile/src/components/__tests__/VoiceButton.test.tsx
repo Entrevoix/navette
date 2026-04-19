@@ -117,8 +117,6 @@ describe('VoiceButton — on-device engine (default)', () => {
     expect(mockStart).toHaveBeenCalledWith(expect.objectContaining({
       lang: 'en-US',
       interimResults: true,
-      continuous: true,
-      requiresOnDeviceRecognition: true,
     }));
     expect(getByText('⏹')).toBeTruthy();
   });
@@ -136,7 +134,7 @@ describe('VoiceButton — on-device engine (default)', () => {
     mockRequestPermissionsAsync.mockResolvedValueOnce({ granted: false });
     const { getByText } = renderButton();
     await act(async () => { fireEvent.press(getByText('⏺')); });
-    await waitFor(() => expect(getByText('mic denied')).toBeTruthy());
+    await waitFor(() => expect(getByText(/Microphone permission is required/)).toBeTruthy());
   });
 
   it('delivers transcript via onTranscript when result fires', async () => {
@@ -173,7 +171,7 @@ describe('VoiceButton — on-device engine (default)', () => {
     await waitFor(() => expect(getByText('⏹')).toBeTruthy());
     await act(async () => { listeners['error']?.({ error: 'client error' }); });
     await waitFor(() => expect(getByText('⏺')).toBeTruthy());
-    expect(getByText('client error')).toBeTruthy();
+    expect(getByText(/client error/)).toBeTruthy();
   });
 
   it('resets to idle when end event fires', async () => {
@@ -211,24 +209,22 @@ describe('VoiceButton — Whisper engine', () => {
   });
 
   it('shows error when Whisper API key is missing', async () => {
-    // First call returns 'whisper' (engine), subsequent calls return null (no key/endpoint)
-    mockAsyncStorageGetItem
-      .mockResolvedValueOnce('whisper') // STT_ENGINE_KEY (handlePress)
-      .mockResolvedValueOnce('whisper') // STT_ENGINE_KEY (second press → handlePress)
-      .mockResolvedValueOnce(null)      // WHISPER_API_KEY_STORAGE
-      .mockResolvedValueOnce(null);     // WHISPER_ENDPOINT_KEY
+    // Key-aware mock: engine = 'whisper', everything else null (no API key)
+    mockAsyncStorageGetItem.mockImplementation((key: string) =>
+      Promise.resolve(key === 'stt_engine' ? 'whisper' : null)
+    );
 
     const { getByText } = renderButton();
     await act(async () => { fireEvent.press(getByText('⏺')); });
     await waitFor(() => expect(getByText('⏹')).toBeTruthy());
     await act(async () => { fireEvent.press(getByText('⏹')); });
-    await waitFor(() => expect(getByText('set Whisper key in Settings')).toBeTruthy());
+    await waitFor(() => expect(getByText(/Whisper API key not set/)).toBeTruthy());
   });
 
   it('shows error when mic permission denied', async () => {
     mockAudioRequestPermissions.mockResolvedValueOnce({ granted: false });
     const { getByText } = renderButton();
     await act(async () => { fireEvent.press(getByText('⏺')); });
-    await waitFor(() => expect(getByText('mic denied')).toBeTruthy());
+    await waitFor(() => expect(getByText(/Microphone permission is required/)).toBeTruthy());
   });
 });

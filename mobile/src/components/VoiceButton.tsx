@@ -139,6 +139,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const ring1Loop = useRef<Animated.CompositeAnimation | null>(null);
   const ring2Loop = useRef<Animated.CompositeAnimation | null>(null);
   const ring2Timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const started = useRef(false);
   const whisperRecording = useRef<Audio.Recording | null>(null);
   const onTranscriptRef = useRef(onTranscript);
@@ -149,11 +150,13 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
 
   // Self-heal: clear stuck whisper state or known-bad recognizer packages
   useEffect(() => {
+    let mounted = true;
     Promise.all([
       AsyncStorage.getItem(STT_ENGINE_KEY),
       AsyncStorage.getItem(WHISPER_API_KEY_STORAGE),
       AsyncStorage.getItem(STT_RECOGNIZER_PKG_KEY),
     ]).then(([engine, key, pkg]) => {
+      if (!mounted) return;
       if (engine === 'whisper' && !key?.trim()) {
         AsyncStorage.removeItem(STT_ENGINE_KEY);
         AsyncStorage.removeItem(STT_RECOGNIZER_PKG_KEY);
@@ -163,9 +166,27 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         AsyncStorage.removeItem(STT_RECOGNIZER_PKG_KEY);
         AsyncStorage.removeItem(STT_RECOGNIZER_LABEL_KEY);
       }
-    });
+    }).catch(() => { /* ignore teardown rejections */ });
+    return () => { mounted = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Master unmount cleanup: stop all timers and animation loops so they
+  // can't fire setState after the component (and Jest env) have torn down.
+  useEffect(() => {
+    return () => {
+      if (errTimeout.current) { clearTimeout(errTimeout.current); errTimeout.current = null; }
+      if (ring2Timeout.current) { clearTimeout(ring2Timeout.current); ring2Timeout.current = null; }
+      pulseLoop.current?.stop(); pulseLoop.current = null;
+      ring1Loop.current?.stop(); ring1Loop.current = null;
+      ring2Loop.current?.stop(); ring2Loop.current = null;
+      if (started.current) {
+        try { ExpoSpeechRecognitionModule.stop(); } catch { /* ignore */ }
+        started.current = false;
+      }
+    };
+  }, []);
+
   useEffect(() => { onTranscriptRef.current = onTranscript; });
 
   const showErrRef = useRef((msg: string, ms = 8000, persist = false, action: ErrAction = 'none') => {
@@ -175,7 +196,13 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     setErrMsg(msg);
     setErrPersist(persist);
     setErrAction(action);
-    if (!persist) setTimeout(() => setErrMsg(''), ms);
+    if (errTimeout.current) clearTimeout(errTimeout.current);
+    if (!persist) {
+      errTimeout.current = setTimeout(() => {
+        errTimeout.current = null;
+        setErrMsg('');
+      }, ms);
+    }
   });
 
   const dismissErr = useCallback(() => {
