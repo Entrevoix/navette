@@ -40,6 +40,33 @@ const KNOWN_RECOGNIZERS: RecognizerOption[] = [
   { pkg: 'com.iflytek.speechsuite', label: 'iFlytek' },
 ];
 
+// Error codes that indicate the *current* recognizer can't serve the request
+// (language missing, service unavailable) but another recognizer might.
+// 11 = ERROR_LANGUAGE_UNAVAILABLE, 12 = ERROR_LANGUAGE_NOT_SUPPORTED,
+// 13 = ERROR_SERVER_UNAVAILABLE.
+const FAILOVER_CODES = new Set([11, 12, 13]);
+
+const PREFERRED_LANG = 'en-US';
+
+// Returns the best locale the given recognizer can serve, preferring an
+// already-installed match over a claimed-but-not-downloaded one. Falls back
+// to the preferred tag when the probe throws (old Android or missing perm).
+async function pickBestLocale(pkg: string | null, preferred = PREFERRED_LANG): Promise<string> {
+  try {
+    const opts = pkg ? { androidRecognitionServicePackage: pkg } : {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = (await ExpoSpeechRecognitionModule.getSupportedLocales(opts)) as any;
+    const locales: string[] = Array.isArray(res?.locales) ? res.locales : [];
+    const installed: string[] = Array.isArray(res?.installedLocales) ? res.installedLocales : [];
+    const lower = preferred.toLowerCase();
+    const exact = (list: string[]) => list.find((l) => l.toLowerCase() === lower);
+    const anyEn = (list: string[]) => list.find((l) => l.toLowerCase().startsWith('en-'));
+    return exact(installed) ?? exact(locales) ?? anyEn(installed) ?? anyEn(locales) ?? preferred;
+  } catch {
+    return preferred;
+  }
+}
+
 function sttErrorMessage(code: number, raw: string): string {
   const map: Record<number, string> = {
     1: 'Network error — check your connection',
@@ -124,7 +151,7 @@ interface VoiceButtonProps {
   disabled?: boolean;
 }
 
-type ErrAction = 'none' | 'no-service' | 'permission';
+type ErrAction = 'none' | 'no-service' | 'permission' | 'lang-unavailable';
 
 export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const [isListening, setIsListening] = useState(false);
@@ -146,6 +173,14 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const started = useRef(false);
   const whisperRecording = useRef<Audio.Recording | null>(null);
   const onTranscriptRef = useRef(onTranscript);
+
+  // Ordered list of pkg candidates to try if the current recognizer fails
+  // with a failover-eligible code. Shift-from-front; empty means no more
+  // fallbacks and the error is final.
+  const failoverChainRef = useRef<(string | null)[]>([]);
+  // True once detection has seeded the chain this session, so a later failure
+  // doesn't loop back into detection indefinitely.
+  const detectionRanRef = useRef(false);
 
   // Note: com.google.android.tts is intentionally NOT blacklisted. expo-speech-recognition
   // docs explicitly list it as a valid getDefaultRecognitionService() return on some devices.
@@ -298,22 +333,25 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
 
   // Fires the native recognizer. Shared by the initial tap, post-detection auto-start,
   // and picker auto-start — all three paths share the same start options.
-  const startRecognizerRef = useRef((pkg: string | null) => {
-    // `com.google.android.as` (Android System Intelligence) is the true on-device STT;
-    // other Google packages (quicksearchbox, voicesearch) use cloud. Hard-requiring
-    // on-device with a cloud package fails silently, so only enforce on-device when
-    // the chosen service actually supports it.
+  //
+  // Pairing EXTRA_PREFER_OFFLINE or requiresOnDeviceRecognition with a cloud-only
+  // recognizer package is an unsatisfiable request, so the framework rejects
+  // start() without surfacing an error to the JS layer. Only gate on-device hints
+  // when the selected service actually ships an on-device model
+  // (com.google.android.as = Android System Intelligence).
+  const startRecognizerRef = useRef(async (pkg: string | null) => {
     const isOnDevicePkg = pkg === 'com.google.android.as';
+    const lang = await pickBestLocale(pkg);
     try {
       ExpoSpeechRecognitionModule.start({
-        lang: 'en-US',
+        lang,
         interimResults: true,
         maxAlternatives: 1,
         continuous: false,
         requiresOnDeviceRecognition: isOnDevicePkg,
-        androidIntentOptions: {
-          EXTRA_PREFER_OFFLINE: true,
-        },
+        ...(isOnDevicePkg
+          ? { androidIntentOptions: { EXTRA_PREFER_OFFLINE: true } }
+          : {}),
         ...(pkg ? { androidRecognitionServicePackage: pkg } : {}),
       });
       started.current = true;
@@ -334,8 +372,10 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       const available = await detectAvailableRecognizers();
       setDetecting(false);
       setErrMsg('');
+      detectionRanRef.current = true;
 
       if (available.length === 0) {
+        failoverChainRef.current = [];
         showErrRef.current(
           'No speech service found on this device.\nInstall one below, or switch to Whisper API.',
           0,
@@ -353,10 +393,15 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         }
         await AsyncStorage.setItem(STT_RECOGNIZER_LABEL_KEY, available[0].label);
         showErrRef.current(`Using ${available[0].label}`, 1500);
-        startRecognizerRef.current(available[0].pkg || null);
+        failoverChainRef.current = [];
+        await startRecognizerRef.current(available[0].pkg || null);
         return;
       }
 
+      // Multi-service: seed the failover chain with every detected package
+      // (minus the one we'll show the picker for) so that, once the user
+      // picks, subsequent failures can transparently try the rest.
+      failoverChainRef.current = available.map((o) => o.pkg || null);
       setPickerOptions(available);
       setPickerVisible(true);
     } catch (e: unknown) {
@@ -379,32 +424,65 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       'error',
       async (event: ExpoSpeechRecognitionErrorEvent) => {
         stopListeningRef.current();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const code = (event as any).code ?? -1;
-        // code 5 = client error (no service), code 7 = no recognition service
+
+        // 1. Failover: try the next candidate in the chain before giving up
+        //    or re-running detection. Applies to language/server-availability
+        //    errors where a different recognizer package might succeed.
+        if (FAILOVER_CODES.has(code) && failoverChainRef.current.length > 0) {
+          const nextPkg = failoverChainRef.current.shift() ?? null;
+          const label = nextPkg ? labelForPackage(nextPkg) : 'System Default';
+          showErrRef.current(`Retrying with ${label}…`, 2000);
+          await startRecognizerRef.current(nextPkg);
+          return;
+        }
+
+        // 2. No-service errors — existing detect-or-clear flow
+        //    code 5 = client error (no service), code 7 = no recognition service
         if (code === 5 || code === 7) {
           const [savedPkg, savedLabel] = await Promise.all([
             AsyncStorage.getItem(STT_RECOGNIZER_PKG_KEY),
             AsyncStorage.getItem(STT_RECOGNIZER_LABEL_KEY),
           ]);
           if (savedPkg === null && savedLabel === null) {
-            // Never detected — run detection
             await triggerDetectionRef.current();
             return;
           }
           if (savedPkg === null && savedLabel !== null) {
-            // System Default was tried but still no working STT on this device
             showErrRef.current(
               'No working speech service found.\nInstall one below, or switch to Whisper API.',
               0, true, 'no-service',
             );
             return;
           }
-          // Specific package was saved but still fails — clear and re-detect
           await AsyncStorage.removeItem(STT_RECOGNIZER_PKG_KEY);
           await AsyncStorage.removeItem(STT_RECOGNIZER_LABEL_KEY);
           await triggerDetectionRef.current();
           return;
         }
+
+        // 3. Failover-eligible code but chain is empty. If detection hasn't
+        //    run this session, a fresh scan may surface more candidates;
+        //    also clear the saved pkg since it just failed.
+        if (FAILOVER_CODES.has(code) && !detectionRanRef.current) {
+          await AsyncStorage.removeItem(STT_RECOGNIZER_PKG_KEY);
+          await AsyncStorage.removeItem(STT_RECOGNIZER_LABEL_KEY);
+          await triggerDetectionRef.current();
+          return;
+        }
+
+        // 4. Language-specific final error — chain exhausted, detection ran
+        if (code === 11 || code === 12) {
+          showErrRef.current(
+            'English voice model not installed on any speech service.\nOpen Speech Services by Google to download it, or switch to Whisper API.',
+            0, true, 'lang-unavailable',
+          );
+          return;
+        }
+
+        // 5. Generic friendly error for everything else
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rawMsg = `${event.error}${(event as any).message ? ': ' + (event as any).message : ''} (code ${code})`;
         const friendlyMsg = sttErrorMessage(code, rawMsg);
         // Only truly transient errors auto-dismiss (6=no speech, 8=busy)
@@ -433,8 +511,13 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       await AsyncStorage.removeItem(STT_RECOGNIZER_PKG_KEY);
     }
     await AsyncStorage.setItem(STT_RECOGNIZER_LABEL_KEY, option.label);
+    // Remove the picked package from the failover chain so we don't retry it
+    // immediately if it fails — next-best candidates remain queued.
+    failoverChainRef.current = failoverChainRef.current.filter(
+      (p) => p !== (option.pkg || null),
+    );
     showErrRef.current(`Using ${option.label}`, 1500);
-    startRecognizerRef.current(option.pkg || null);
+    await startRecognizerRef.current(option.pkg || null);
   };
 
   const handlePickWhisper = async () => {
@@ -457,7 +540,11 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       return;
     }
     const pkg = await AsyncStorage.getItem(STT_RECOGNIZER_PKG_KEY);
-    startRecognizerRef.current(pkg);
+    // Fresh session — reset the chain and the detection-ran flag so the
+    // error handler can re-seed from a new scan if the first attempt fails.
+    failoverChainRef.current = [];
+    detectionRanRef.current = false;
+    await startRecognizerRef.current(pkg);
   };
 
   // ── Whisper API ──────────────────────────────────────────────────────────────
@@ -595,6 +682,25 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
                 <Pressable style={styles.errActionBtn} onPress={dismissErr}>
                   <Text style={styles.errActionBtnText}>Try Again</Text>
                   <Text style={styles.errActionBtnSub}>After enabling permission, tap mic</Text>
+                </Pressable>
+              </View>
+            )}
+            {errAction === 'lang-unavailable' && (
+              <View style={styles.errActions}>
+                <Pressable
+                  style={styles.errActionBtn}
+                  onPress={() => openPlayStore('com.google.android.tts')}
+                >
+                  <Text style={styles.errActionBtnText}>Open Speech Services by Google</Text>
+                  <Text style={styles.errActionBtnSub}>Download the English voice model</Text>
+                </Pressable>
+                <Pressable style={styles.errActionBtn} onPress={retryDetection}>
+                  <Text style={styles.errActionBtnText}>Retry Detection</Text>
+                  <Text style={styles.errActionBtnSub}>After downloading, rescan devices</Text>
+                </Pressable>
+                <Pressable style={styles.errActionBtn} onPress={switchToWhisper}>
+                  <Text style={styles.errActionBtnText}>Use Whisper API</Text>
+                  <Text style={styles.errActionBtnSub}>Cloud transcription — needs API key</Text>
                 </Pressable>
               </View>
             )}

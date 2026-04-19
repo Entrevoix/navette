@@ -12,6 +12,9 @@ jest.mock('expo-speech-recognition', () => ({
     start: jest.fn(),
     stop: jest.fn(),
     requestPermissionsAsync: jest.fn(),
+    getSupportedLocales: jest.fn(),
+    getSpeechRecognitionServices: jest.fn(),
+    getDefaultRecognitionService: jest.fn(),
   },
 }));
 
@@ -44,6 +47,9 @@ const mockAddListener = speechMocked.ExpoSpeechRecognitionModule.addListener as 
 const mockStart = speechMocked.ExpoSpeechRecognitionModule.start as jest.Mock;
 const mockStop = speechMocked.ExpoSpeechRecognitionModule.stop as jest.Mock;
 const mockRequestPermissionsAsync = speechMocked.ExpoSpeechRecognitionModule.requestPermissionsAsync as jest.Mock;
+const mockGetSupportedLocales = speechMocked.ExpoSpeechRecognitionModule.getSupportedLocales as jest.Mock;
+const mockGetSpeechRecognitionServices = speechMocked.ExpoSpeechRecognitionModule.getSpeechRecognitionServices as jest.Mock;
+const mockGetDefaultRecognitionService = speechMocked.ExpoSpeechRecognitionModule.getDefaultRecognitionService as jest.Mock;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const avMocked = jest.requireMock('expo-av') as any;
@@ -80,6 +86,14 @@ beforeEach(() => {
   mockRequestPermissionsAsync.mockResolvedValue({ granted: true });
   mockAudioRequestPermissions.mockResolvedValue({ granted: true });
   mockSetAudioMode.mockResolvedValue(undefined);
+
+  // Default: en-US is claimed + installed, so pickBestLocale returns en-US
+  mockGetSupportedLocales.mockResolvedValue({
+    locales: ['en-US'],
+    installedLocales: ['en-US'],
+  });
+  mockGetSpeechRecognitionServices.mockReturnValue([]);
+  mockGetDefaultRecognitionService.mockReturnValue({ packageName: '' });
 
   // Default recording mock
   const mockRecordingInstance = {
