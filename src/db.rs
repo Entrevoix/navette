@@ -14,6 +14,15 @@ pub fn open() -> Result<Connection> {
              seq  INTEGER PRIMARY KEY AUTOINCREMENT,
              ts   REAL    NOT NULL,
              json TEXT    NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS scheduled_sessions (
+             id           TEXT    PRIMARY KEY,
+             prompt       TEXT    NOT NULL,
+             container    TEXT,
+             command      TEXT,
+             scheduled_at REAL    NOT NULL,
+             created_at   REAL    NOT NULL,
+             fired        INTEGER NOT NULL DEFAULT 0
          );",
     )
     .context("failed to initialize schema")?;
@@ -120,6 +129,122 @@ pub fn get_session_events(conn: &Connection, session_id: &str) -> Result<Vec<ser
                 "seq": seq,
                 "ts": ts,
                 "event": event,
+            })
+        })
+        .collect())
+}
+
+/// Insert a scheduled session.
+pub fn insert_scheduled_session(
+    conn: &Connection,
+    id: &str,
+    prompt: &str,
+    container: Option<&str>,
+    command: Option<&str>,
+    scheduled_at: f64,
+    created_at: f64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO scheduled_sessions (id, prompt, container, command, scheduled_at, created_at, fired)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+        rusqlite::params![id, prompt, container, command, scheduled_at, created_at],
+    )
+    .context("insert_scheduled_session failed")?;
+    Ok(())
+}
+
+/// Return all pending (not yet fired) scheduled sessions.
+pub fn get_pending_scheduled_sessions(conn: &Connection) -> Result<Vec<serde_json::Value>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, prompt, container, command, scheduled_at, created_at
+             FROM scheduled_sessions WHERE fired = 0 ORDER BY scheduled_at ASC",
+        )
+        .context("prepare get_pending_scheduled_sessions")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, f64>(4)?,
+                row.get::<_, f64>(5)?,
+            ))
+        })
+        .context("query get_pending_scheduled_sessions")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect get_pending_scheduled_sessions")?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, prompt, container, command, scheduled_at, created_at)| {
+            serde_json::json!({
+                "id": id,
+                "prompt": prompt,
+                "container": container,
+                "command": command,
+                "scheduled_at": scheduled_at,
+                "created_at": created_at,
+                "fired": false,
+            })
+        })
+        .collect())
+}
+
+/// Mark a scheduled session as fired so it won't run again.
+pub fn mark_scheduled_session_fired(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE scheduled_sessions SET fired = 1 WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .context("mark_scheduled_session_fired failed")?;
+    Ok(())
+}
+
+/// Delete a scheduled session (cancel).
+pub fn delete_scheduled_session(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM scheduled_sessions WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .context("delete_scheduled_session failed")?;
+    Ok(())
+}
+
+/// List all scheduled sessions (pending and fired), most recent first.
+pub fn list_scheduled_sessions(conn: &Connection) -> Result<Vec<serde_json::Value>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, prompt, container, command, scheduled_at, created_at, fired
+             FROM scheduled_sessions ORDER BY scheduled_at DESC",
+        )
+        .context("prepare list_scheduled_sessions")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, f64>(4)?,
+                row.get::<_, f64>(5)?,
+                row.get::<_, i64>(6)?,
+            ))
+        })
+        .context("query list_scheduled_sessions")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect list_scheduled_sessions")?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, prompt, container, command, scheduled_at, created_at, fired)| {
+            serde_json::json!({
+                "id": id,
+                "prompt": prompt,
+                "container": container,
+                "command": command,
+                "scheduled_at": scheduled_at,
+                "created_at": created_at,
+                "fired": fired != 0,
             })
         })
         .collect())

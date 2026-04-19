@@ -12,10 +12,11 @@ import {
 } from 'react-native';
 
 import { DEFAULT_WHISPER_ENDPOINT, STT_ENGINE_KEY, WHISPER_API_KEY_STORAGE, WHISPER_ENDPOINT_KEY } from '../components/VoiceButton';
+import { ScheduleScreen } from './ScheduleScreen';
 import { SessionHistoryScreen } from './SessionHistoryScreen';
 import { SkillsScreen } from './SkillsScreen';
 import type { SkillInfo } from '../hooks/useClaudedWS';
-import type { EventFrame, PastSessionInfo } from '../types';
+import type { EventFrame, PastSessionInfo, ScheduledSessionInfo } from '../types';
 
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
 
@@ -35,9 +36,13 @@ interface SettingsScreenProps {
   sessionHistory: Record<string, EventFrame[]>;
   onListPastSessions: () => void;
   onGetSessionHistory: (sessionId: string) => void;
+  scheduledSessions: ScheduledSessionInfo[];
+  onScheduleSession: (prompt: string, scheduledAt: number) => void;
+  onCancelScheduledSession: (id: string) => void;
+  onListScheduledSessions: () => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, skills, onListSkills, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, skills, onListSkills, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [tsApiKey, setTsApiKey] = useState('');
   const [tsKeySaved, setTsKeySaved] = useState(false);
@@ -47,6 +52,7 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
   const [whisperSaved, setWhisperSaved] = useState(false);
   const [skillsVisible, setSkillsVisible] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
+  const [scheduleVisible, setScheduleVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -112,6 +118,14 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
         onClose={() => setSkillsVisible(false)}
         skills={skills}
         onRefresh={onListSkills}
+      />
+      <ScheduleScreen
+        visible={scheduleVisible}
+        onClose={() => setScheduleVisible(false)}
+        scheduledSessions={scheduledSessions}
+        onSchedule={onScheduleSession}
+        onCancel={onCancelScheduledSession}
+        onRefresh={onListScheduledSessions}
       />
       <View style={styles.container}>
         <View style={styles.header}>
@@ -202,6 +216,18 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
           <Pressable style={styles.skillsBtn} onPress={() => setSkillsVisible(true)}>
             <Text style={styles.skillsBtnText}>
               Browse Skills ({skills.length}) →
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Scheduled Sessions</Text>
+          <Text style={styles.sectionSubtitle}>
+            Schedule a Claude session to start at a future time.
+          </Text>
+          <Pressable style={styles.scheduleBtn} onPress={() => setScheduleVisible(true)}>
+            <Text style={styles.scheduleBtnText}>
+              Manage Scheduled ({scheduledSessions.filter(s => !s.fired).length} pending) →
             </Text>
           </Pressable>
         </View>
@@ -413,6 +439,20 @@ const styles = StyleSheet.create({
   },
   skillsBtnText: {
     color: '#a5b4fc',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  scheduleBtn: {
+    backgroundColor: '#0d1a0d',
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#166534',
+    marginTop: 4,
+  },
+  scheduleBtnText: {
+    color: '#4ade80',
     fontSize: 15,
     fontWeight: '700',
   },

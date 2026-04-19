@@ -433,6 +433,83 @@ async fn handle_ws(
                                         break;
                                     }
                                 }
+                            } else if msg_type == "schedule_session" {
+                                if let Some(prompt) = v.get("prompt").and_then(|p| p.as_str()) {
+                                    let scheduled_at = v
+                                        .get("scheduled_at")
+                                        .and_then(|v| v.as_f64())
+                                        .unwrap_or_else(unix_ts);
+                                    let container = v
+                                        .get("container")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string());
+                                    let command = v
+                                        .get("command")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string());
+                                    let sched_id = new_session_id();
+                                    let now = unix_ts();
+                                    {
+                                        let conn = db.lock().unwrap();
+                                        let _ = db::insert_scheduled_session(
+                                            &conn,
+                                            &sched_id,
+                                            prompt,
+                                            container.as_deref(),
+                                            command.as_deref(),
+                                            scheduled_at,
+                                            now,
+                                        );
+                                    }
+                                    tracing::info!(%client_id, %sched_id, scheduled_at, "session scheduled");
+                                    let reply = serde_json::to_string(&serde_json::json!({
+                                        "type": "session_scheduled",
+                                        "id": sched_id,
+                                        "scheduled_at": scheduled_at,
+                                    }))
+                                    .unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "list_scheduled_sessions" {
+                                let db2 = db.clone();
+                                let scheduled = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::list_scheduled_sessions(&conn)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "scheduled_sessions_list",
+                                    "sessions": scheduled,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "cancel_scheduled_session" {
+                                let sched_id = v
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::delete_scheduled_session(&conn, &sched_id);
+                                }
+                                tracing::info!(%client_id, %sched_id, "scheduled session cancelled");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "scheduled_session_cancelled",
+                                    "id": sched_id,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
                             } else {
                                 handle_input(&v, &client_id, &pending, &buffered).await;
                             }

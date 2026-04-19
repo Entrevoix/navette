@@ -16,6 +16,7 @@ use std::{
 use anyhow::Result;
 use rusqlite::Connection;
 use tokio::sync::{broadcast, oneshot, Mutex};
+use tokio::time::Duration;
 
 /// Shared map: tool_use_id → oneshot sender waiting for a user decision.
 pub type PendingApprovals = Arc<Mutex<HashMap<String, oneshot::Sender<Decision>>>>;
@@ -107,6 +108,100 @@ async fn main() -> Result<()> {
                         }
                         _ => {}
                     }
+                }
+            }
+        });
+    }
+
+    // Scheduler: poll every 30 s and fire sessions whose time has arrived.
+    {
+        let scheduler_db = db.clone();
+        let scheduler_sessions = sessions.clone();
+        let scheduler_events_tx = events_tx.clone();
+        let scheduler_pending = pending.clone();
+        let scheduler_cfg = cfg.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                let now = unix_ts();
+                let pending_jobs = {
+                    let conn = scheduler_db.lock().unwrap();
+                    db::get_pending_scheduled_sessions(&conn).unwrap_or_default()
+                };
+                for job in pending_jobs {
+                    let scheduled_at = job["scheduled_at"].as_f64().unwrap_or(0.0);
+                    if scheduled_at > now {
+                        continue;
+                    }
+                    let id = job["id"].as_str().unwrap_or("").to_string();
+                    let prompt = job["prompt"].as_str().unwrap_or("").to_string();
+                    let container = job["container"].as_str().map(|s| s.to_string());
+                    let command = job["command"].as_str().map(|s| s.to_string());
+
+                    // Mark fired before spawning so a crash doesn't re-fire.
+                    {
+                        let conn = scheduler_db.lock().unwrap();
+                        let _ = db::mark_scheduled_session_fired(&conn, &id);
+                    }
+
+                    // Enforce concurrency limit.
+                    let session_count = scheduler_sessions.lock().await.len();
+                    if session_count >= scheduler_cfg.max_concurrent_sessions {
+                        tracing::warn!(scheduled_id = %id, "scheduler: max concurrent sessions reached, skipping job");
+                        continue;
+                    }
+
+                    // Emit a notification event.
+                    let fired_json = serde_json::to_string(&serde_json::json!({
+                        "type": "scheduled_session_fired",
+                        "scheduled_id": id,
+                        "prompt": prompt,
+                    }))
+                    .unwrap_or_default();
+                    let _ = scheduler_events_tx.send((0, now, fired_json));
+
+                    // Spawn the session.
+                    let session_id = {
+                        use rand::Rng;
+                        rand::thread_rng()
+                            .sample_iter(&rand::distributions::Alphanumeric)
+                            .take(16)
+                            .map(char::from)
+                            .collect::<String>()
+                    };
+                    let (kill_tx, kill_rx) = oneshot::channel::<()>();
+                    scheduler_sessions.lock().await.insert(
+                        session_id.clone(),
+                        SessionEntry {
+                            prompt: prompt.clone(),
+                            container: container.clone(),
+                            command: command.clone(),
+                            started_at: now,
+                            kill_tx: Some(kill_tx),
+                            input_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                            output_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                            cache_read_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                        },
+                    );
+                    emit_session_list_changed(&scheduler_sessions, &scheduler_events_tx).await;
+
+                    let req = RunRequest {
+                        prompt,
+                        container,
+                        dangerously_skip_permissions: false,
+                        work_dir: None,
+                        command,
+                    };
+                    tracing::info!(scheduled_id = %id, %session_id, "scheduler: firing session");
+                    tokio::spawn(run_session(
+                        session_id,
+                        req,
+                        scheduler_sessions.clone(),
+                        scheduler_db.clone(),
+                        scheduler_pending.clone(),
+                        scheduler_events_tx.clone(),
+                        kill_rx,
+                    ));
                 }
             }
         });

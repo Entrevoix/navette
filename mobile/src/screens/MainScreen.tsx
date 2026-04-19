@@ -15,7 +15,7 @@ import { EventFeed } from '../components/EventFeed';
 import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, SessionInfo, SessionStatus } from '../types';
+import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, ScheduledSessionInfo, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useClaudedWS';
 
 interface MainScreenProps {
@@ -42,6 +42,10 @@ interface MainScreenProps {
   sessionHistory: Record<string, EventFrame[]>;
   onListPastSessions: () => void;
   onGetSessionHistory: (sessionId: string) => void;
+  scheduledSessions: ScheduledSessionInfo[];
+  onScheduleSession: (prompt: string, scheduledAt: number) => void;
+  onCancelScheduledSession: (id: string) => void;
+  onListScheduledSessions: () => void;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -83,6 +87,10 @@ export function MainScreen({
   sessionHistory,
   onListPastSessions,
   onGetSessionHistory,
+  scheduledSessions,
+  onScheduleSession,
+  onCancelScheduledSession,
+  onListScheduledSessions,
 }: MainScreenProps) {
   const AGENTS = ['claude', 'codex', 'gemini', 'aider'] as const;
   type AgentName = typeof AGENTS[number];
@@ -179,6 +187,10 @@ export function MainScreen({
         sessionHistory={sessionHistory}
         onListPastSessions={onListPastSessions}
         onGetSessionHistory={onGetSessionHistory}
+        scheduledSessions={scheduledSessions}
+        onScheduleSession={onScheduleSession}
+        onCancelScheduledSession={onCancelScheduledSession}
+        onListScheduledSessions={onListScheduledSessions}
       />
 
       {/* Top bar */}

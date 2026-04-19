@@ -109,3 +109,13 @@ export interface PastSessionInfo {
   started_at: number;
   last_event: number;
 }
+
+export interface ScheduledSessionInfo {
+  id: string;
+  prompt: string;
+  container?: string | null;
+  command?: string | null;
+  scheduled_at: number;
+  created_at: number;
+  fired: boolean;
+}

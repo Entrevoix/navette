@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo } from '../types';
 
 const LAST_SEQ_KEY = 'clauded_last_seq';
 
@@ -30,6 +30,7 @@ interface UseClaudedWSResult {
   skills: SkillInfo[];
   pastSessions: PastSessionInfo[];
   sessionHistory: Record<string, EventFrame[]>;
+  scheduledSessions: ScheduledSessionInfo[];
   connect: (config: ServerConfig) => void;
   disconnect: () => void;
   decide: (tool_use_id: string, allow: boolean) => void;
@@ -41,6 +42,9 @@ interface UseClaudedWSResult {
   listSkills: () => void;
   listPastSessions: () => void;
   getSessionHistory: (sessionId: string) => void;
+  scheduleSession: (prompt: string, scheduledAt: number, options?: { container?: string; command?: string }) => void;
+  cancelScheduledSession: (id: string) => void;
+  listScheduledSessions: () => void;
 }
 
 export function useClaudedWS(): UseClaudedWSResult {
@@ -55,6 +59,7 @@ export function useClaudedWS(): UseClaudedWSResult {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [pastSessions, setPastSessions] = useState<PastSessionInfo[]>([]);
   const [sessionHistory, setSessionHistory] = useState<Record<string, EventFrame[]>>({});
+  const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionInfo[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const lastSeqRef = useRef(0);
@@ -139,6 +144,30 @@ export function useClaudedWS(): UseClaudedWSResult {
   const getSessionHistory = useCallback((sessionId: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'get_session_history', session_id: sessionId }));
+    }
+  }, []);
+
+  const scheduleSession = useCallback((prompt: string, scheduledAt: number, options?: { container?: string; command?: string }) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'schedule_session',
+        prompt,
+        scheduled_at: scheduledAt,
+        container: options?.container ?? null,
+        command: options?.command ?? null,
+      }));
+    }
+  }, []);
+
+  const cancelScheduledSession = useCallback((id: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'cancel_scheduled_session', id }));
+    }
+  }, []);
+
+  const listScheduledSessions = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_scheduled_sessions' }));
     }
   }, []);
 
@@ -244,6 +273,15 @@ export function useClaudedWS(): UseClaudedWSResult {
     if (event.type === 'dir_listing') {
       dirListingCallbackRef.current?.(event as unknown as DirListingEvent);
     }
+
+    if (event.type === 'scheduled_session_fired') {
+      const firedId = (event as { type: string; scheduled_id?: string }).scheduled_id;
+      if (firedId) {
+        setScheduledSessions(prev =>
+          prev.map(s => s.id === firedId ? { ...s, fired: true } : s)
+        );
+      }
+    }
   }, []);
 
   const connect = useCallback((config: ServerConfig) => {
@@ -341,6 +379,27 @@ export function useClaudedWS(): UseClaudedWSResult {
         return;
       }
 
+      if (msgType === 'scheduled_sessions_list') {
+        setScheduledSessions((msg['sessions'] as ScheduledSessionInfo[] | undefined) ?? []);
+        return;
+      }
+
+      if (msgType === 'session_scheduled') {
+        // Refresh the list so the new entry appears.
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'list_scheduled_sessions' }));
+        }
+        return;
+      }
+
+      if (msgType === 'scheduled_session_cancelled') {
+        const cancelledId = msg['id'] as string | undefined;
+        if (cancelledId) {
+          setScheduledSessions(prev => prev.filter(s => s.id !== cancelledId));
+        }
+        return;
+      }
+
       if (msgType === 'token_usage') {
         const sid = msg['session_id'] as string | undefined;
         if (sid) {
@@ -401,6 +460,7 @@ export function useClaudedWS(): UseClaudedWSResult {
     skills,
     pastSessions,
     sessionHistory,
+    scheduledSessions,
     connect,
     disconnect,
     decide,
@@ -412,5 +472,8 @@ export function useClaudedWS(): UseClaudedWSResult {
     listSkills,
     listPastSessions,
     getSessionHistory,
+    scheduleSession,
+    cancelScheduledSession,
+    listScheduledSessions,
   };
 }
