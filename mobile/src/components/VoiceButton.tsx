@@ -54,7 +54,45 @@ function sttErrorMessage(code: number, raw: string): string {
   return map[code] ? `${map[code]} (${code})` : raw || `Speech error ${code}`;
 }
 
+function labelForPackage(pkg: string): string {
+  const known = KNOWN_RECOGNIZERS.find((r) => r.pkg === pkg);
+  if (known) return known.label;
+  // Fallback label: derive from last path segment, title-cased
+  const seg = pkg.split('.').pop() ?? pkg;
+  return seg.charAt(0).toUpperCase() + seg.slice(1);
+}
+
 async function detectAvailableRecognizers(): Promise<RecognizerOption[]> {
+  // Primary: ask Android directly which recognizer services are installed.
+  // This bypasses Android 11+ <queries> visibility issues and Android 13+
+  // ERROR_LANGUAGE_UNAVAILABLE false negatives that the per-package probe hits.
+  try {
+    const services = ExpoSpeechRecognitionModule.getSpeechRecognitionServices();
+    if (services && services.length > 0) {
+      let defaultPkg = '';
+      try {
+        defaultPkg = ExpoSpeechRecognitionModule.getDefaultRecognitionService()?.packageName ?? '';
+      } catch {
+        // non-fatal
+      }
+      const options: RecognizerOption[] = services.map((pkg) => ({
+        pkg,
+        label: labelForPackage(pkg),
+      }));
+      // Hoist default to the front so it's the first choice presented
+      options.sort((a, b) => {
+        if (a.pkg === defaultPkg) return -1;
+        if (b.pkg === defaultPkg) return 1;
+        return 0;
+      });
+      return [...options, SYSTEM_DEFAULT_RECOGNIZER];
+    }
+  } catch {
+    // fall through to legacy probe
+  }
+
+  // Fallback: legacy per-package probe for when getSpeechRecognitionServices
+  // is unavailable or returns empty.
   const confirmed: RecognizerOption[] = [];
   const tentative: RecognizerOption[] = [];
   for (const r of KNOWN_RECOGNIZERS) {
@@ -66,18 +104,15 @@ async function detectAvailableRecognizers(): Promise<RecognizerOption[]> {
         confirmed.push(r);
       }
     } catch (e: unknown) {
-      // ERROR_LANGUAGE_UNAVAILABLE (14): service found but locale check failed —
-      // onSupportResult still fires proving the package exists; add as tentative.
-      const code = (e as any)?.code ?? (e as any)?.nativeErrorCode;
+      const code = (e as { code?: number; nativeErrorCode?: number })?.code
+        ?? (e as { code?: number; nativeErrorCode?: number })?.nativeErrorCode;
       const msg = e instanceof Error ? e.message : String(e);
       if (code === 14 || msg.includes('14')) {
         tentative.push(r);
       }
-      // All other errors = package not installed, skip.
     }
   }
   const found = confirmed.length > 0 ? confirmed : tentative;
-  // Always append System Default so user can fall back to Android's built-in picker
   return [...found, SYSTEM_DEFAULT_RECOGNIZER];
 }
 
@@ -108,7 +143,9 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const whisperRecording = useRef<Audio.Recording | null>(null);
   const onTranscriptRef = useRef(onTranscript);
 
-  const KNOWN_BAD_PKGS = ['com.google.android.tts'];
+  // Note: com.google.android.tts is intentionally NOT blacklisted. expo-speech-recognition
+  // docs explicitly list it as a valid getDefaultRecognitionService() return on some devices.
+  const KNOWN_BAD_PKGS: string[] = [];
 
   // Self-heal: clear stuck whisper state or known-bad recognizer packages
   useEffect(() => {
