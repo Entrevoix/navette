@@ -71,8 +71,9 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     const errorSub = ExpoSpeechRecognitionModule.addListener(
       'error',
       (event: ExpoSpeechRecognitionErrorEvent) => {
-        setErrMsg(event.error);
-        setTimeout(() => setErrMsg(''), 3000);
+        const msg = `${event.error}${(event as any).message ? ': ' + (event as any).message : ''}`;
+        setErrMsg(msg.slice(0, 60));
+        setTimeout(() => setErrMsg(''), 8000);
         stopListeningRef.current();
       }
     );
@@ -108,8 +109,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         lang: 'en-US',
         interimResults: true,
         maxAlternatives: 1,
-        continuous: true,
-        requiresOnDeviceRecognition: true,
+        continuous: false,
       });
       started.current = true;
       setIsListening(true);
