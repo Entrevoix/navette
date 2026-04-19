@@ -43,7 +43,8 @@
             "com.iflytek.speechsuite"
           ]
         }
-      ]
+      ],
+      "./plugins/withSpeechRecognitionQueries"
     ]
   }
 }

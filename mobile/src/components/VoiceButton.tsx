@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import {
   ExpoSpeechRecognitionModule,
@@ -7,7 +8,7 @@ import {
   type ExpoSpeechRecognitionResultEvent,
 } from 'expo-speech-recognition';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 export const STT_ENGINE_KEY = 'stt_engine';
 export const STT_RECOGNIZER_PKG_KEY = 'stt_recognizer_pkg';
@@ -92,6 +93,60 @@ function labelForPackage(pkg: string): string {
   return seg.charAt(0).toUpperCase() + seg.slice(1);
 }
 
+// Gather everything we know about the device's STT state. Returned as plain
+// text so the user can paste it into a bug report.
+async function collectDiagnostics(lastError: string | null): Promise<string> {
+  const lines: string[] = [];
+  const ts = new Date().toISOString();
+  lines.push(`Relay voice diagnostics @ ${ts}`);
+  lines.push('');
+  // getSpeechRecognitionServices
+  try {
+    const services = ExpoSpeechRecognitionModule.getSpeechRecognitionServices();
+    lines.push(`getSpeechRecognitionServices() → [${(services ?? []).join(', ') || '(empty)'}]`);
+  } catch (e: unknown) {
+    lines.push(`getSpeechRecognitionServices() threw: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  // getDefaultRecognitionService
+  try {
+    const def = ExpoSpeechRecognitionModule.getDefaultRecognitionService();
+    lines.push(`getDefaultRecognitionService() → ${def?.packageName || '(empty)'}`);
+  } catch (e: unknown) {
+    lines.push(`getDefaultRecognitionService() threw: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  // Per-package probes
+  lines.push('');
+  lines.push('Per-package getSupportedLocales probe:');
+  for (const r of KNOWN_RECOGNIZERS) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const res = (await ExpoSpeechRecognitionModule.getSupportedLocales({
+        androidRecognitionServicePackage: r.pkg,
+      })) as any;
+      const locales: string[] = Array.isArray(res?.locales) ? res.locales : [];
+      const installed: string[] = Array.isArray(res?.installedLocales) ? res.installedLocales : [];
+      lines.push(`  ${r.pkg}: ${locales.length} locales, ${installed.length} installed`);
+    } catch (e: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const code = (e as any)?.code ?? (e as any)?.nativeErrorCode;
+      const msg = e instanceof Error ? e.message : String(e);
+      lines.push(`  ${r.pkg}: ERROR code=${code ?? '?'} msg=${msg.slice(0, 80)}`);
+    }
+  }
+  // Saved state
+  lines.push('');
+  const [savedPkg, savedLabel, savedEngine] = await Promise.all([
+    AsyncStorage.getItem(STT_RECOGNIZER_PKG_KEY),
+    AsyncStorage.getItem(STT_RECOGNIZER_LABEL_KEY),
+    AsyncStorage.getItem(STT_ENGINE_KEY),
+  ]);
+  lines.push(`Saved engine: ${savedEngine ?? '(unset, defaults to on-device)'}`);
+  lines.push(`Saved pkg: ${savedPkg ?? '(null)'}`);
+  lines.push(`Saved label: ${savedLabel ?? '(null)'}`);
+  lines.push(`Last error: ${lastError ?? '(none)'}`);
+  return lines.join('\n');
+}
+
 async function detectAvailableRecognizers(): Promise<RecognizerOption[]> {
   // Primary: ask Android directly which recognizer services are installed.
   // This bypasses Android 11+ <queries> visibility issues and Android 13+
@@ -151,7 +206,7 @@ interface VoiceButtonProps {
   disabled?: boolean;
 }
 
-type ErrAction = 'none' | 'no-service' | 'permission' | 'lang-unavailable';
+type ErrAction = 'none' | 'no-service' | 'permission' | 'lang-unavailable' | 'diag';
 
 export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const [isListening, setIsListening] = useState(false);
@@ -181,6 +236,9 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   // True once detection has seeded the chain this session, so a later failure
   // doesn't loop back into detection indefinitely.
   const detectionRanRef = useRef(false);
+  // Last raw STT error — surfaced in the diagnostics dump so the user can
+  // share it in a bug report instead of just the friendly message.
+  const lastErrorRef = useRef<string | null>(null);
 
   // Note: com.google.android.tts is intentionally NOT blacklisted. expo-speech-recognition
   // docs explicitly list it as a valid getDefaultRecognitionService() return on some devices.
@@ -273,6 +331,17 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     dismissErr();
     showErrRef.current('Switched to Whisper. Add API key in Settings → Voice Input.', 4000);
   }, [dismissErr]);
+
+  const copyDiagnostics = useCallback(async () => {
+    const text = await collectDiagnostics(lastErrorRef.current);
+    try { await Clipboard.setStringAsync(text); } catch { /* ignore */ }
+    // Replace the current sheet with the diag view, force persistent.
+    errPersistRef.current = true;
+    if (errTimeout.current) { clearTimeout(errTimeout.current); errTimeout.current = null; }
+    setErrMsg(text);
+    setErrPersist(true);
+    setErrAction('diag');
+  }, []);
 
   const startPulse = () => {
     pulseAnim.setValue(1);
@@ -374,10 +443,16 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       setErrMsg('');
       detectionRanRef.current = true;
 
-      if (available.length === 0) {
+      // A result of "only System Default" means the legacy probe didn't surface
+      // any real package — System Default is appended unconditionally. Treating
+      // that as a successful detection causes the app to auto-start with no
+      // explicit pkg, which is exactly what just failed — an infinite loop.
+      // Skip straight to the no-service sheet (with diagnostics) instead.
+      const realHits = available.filter((o) => o.pkg !== '');
+      if (realHits.length === 0) {
         failoverChainRef.current = [];
         showErrRef.current(
-          'No speech service found on this device.\nInstall one below, or switch to Whisper API.',
+          'No speech service found on this device.\nInstall one below, switch to Whisper API, or copy diagnostics to see what the scan returned.',
           0,
           true,
           'no-service',
@@ -385,16 +460,13 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         return;
       }
 
-      if (available.length === 1) {
-        if (available[0].pkg) {
-          await AsyncStorage.setItem(STT_RECOGNIZER_PKG_KEY, available[0].pkg);
-        } else {
-          await AsyncStorage.removeItem(STT_RECOGNIZER_PKG_KEY);
-        }
-        await AsyncStorage.setItem(STT_RECOGNIZER_LABEL_KEY, available[0].label);
-        showErrRef.current(`Using ${available[0].label}`, 1500);
+      if (realHits.length === 1) {
+        const hit = realHits[0];
+        await AsyncStorage.setItem(STT_RECOGNIZER_PKG_KEY, hit.pkg);
+        await AsyncStorage.setItem(STT_RECOGNIZER_LABEL_KEY, hit.label);
+        showErrRef.current(`Using ${hit.label}`, 1500);
         failoverChainRef.current = [];
-        await startRecognizerRef.current(available[0].pkg || null);
+        await startRecognizerRef.current(hit.pkg);
         return;
       }
 
@@ -426,6 +498,9 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         stopListeningRef.current();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const code = (event as any).code ?? -1;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const nativeMsg = (event as any).message;
+        lastErrorRef.current = `code=${code} error=${event.error}${nativeMsg ? ' msg=' + nativeMsg : ''}`;
 
         // 1. Failover: try the next candidate in the chain before giving up
         //    or re-running detection. Applies to language/server-availability
@@ -623,6 +698,10 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
 
   const handlePress = async () => {
     if (detecting) return;
+    // A stale persistent error (e.g. a leftover no-service sheet) would mute
+    // every transient message the next flow produces — so clear it before
+    // dispatching, regardless of whether the sheet is currently visible.
+    errPersistRef.current = false;
     const engine = await AsyncStorage.getItem(STT_ENGINE_KEY);
     if (engine === 'whisper') {
       await handlePressWhisper();
@@ -672,7 +751,13 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
             <Text style={styles.errSheetTitle}>
               {errPersist ? '⚠️ Voice Input' : 'ℹ️ Voice Input'}
             </Text>
-            <Text style={styles.errSheetMsg}>{errMsg}</Text>
+            {errAction === 'diag' ? (
+              <ScrollView style={styles.diagScroll}>
+                <Text style={styles.diagText}>{errMsg}</Text>
+              </ScrollView>
+            ) : (
+              <Text style={styles.errSheetMsg}>{errMsg}</Text>
+            )}
             {errAction === 'permission' && (
               <View style={styles.errActions}>
                 <Pressable style={styles.errActionBtn} onPress={openAppSettings}>
@@ -702,6 +787,10 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
                   <Text style={styles.errActionBtnText}>Use Whisper API</Text>
                   <Text style={styles.errActionBtnSub}>Cloud transcription — needs API key</Text>
                 </Pressable>
+                <Pressable style={styles.errActionBtn} onPress={copyDiagnostics}>
+                  <Text style={styles.errActionBtnText}>Copy diagnostics</Text>
+                  <Text style={styles.errActionBtnSub}>Paste the scan + probe output into a bug report</Text>
+                </Pressable>
               </View>
             )}
             {errAction === 'no-service' && (
@@ -727,6 +816,26 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
                 <Pressable style={styles.errActionBtn} onPress={retryDetection}>
                   <Text style={styles.errActionBtnText}>Retry Detection</Text>
                   <Text style={styles.errActionBtnSub}>Rescan device for speech services</Text>
+                </Pressable>
+                <Pressable style={styles.errActionBtn} onPress={copyDiagnostics}>
+                  <Text style={styles.errActionBtnText}>Copy diagnostics</Text>
+                  <Text style={styles.errActionBtnSub}>Paste the scan + probe output into a bug report</Text>
+                </Pressable>
+              </View>
+            )}
+            {errAction === 'diag' && (
+              <View style={styles.errActions}>
+                <Pressable style={styles.errActionBtn} onPress={copyDiagnostics}>
+                  <Text style={styles.errActionBtnText}>Copy again</Text>
+                  <Text style={styles.errActionBtnSub}>Writes the dump above to the clipboard</Text>
+                </Pressable>
+                <Pressable style={styles.errActionBtn} onPress={retryDetection}>
+                  <Text style={styles.errActionBtnText}>Retry Detection</Text>
+                  <Text style={styles.errActionBtnSub}>Rescan device for speech services</Text>
+                </Pressable>
+                <Pressable style={styles.errActionBtn} onPress={switchToWhisper}>
+                  <Text style={styles.errActionBtnText}>Use Whisper API</Text>
+                  <Text style={styles.errActionBtnSub}>Cloud transcription — needs API key</Text>
                 </Pressable>
               </View>
             )}
@@ -810,6 +919,8 @@ const styles = StyleSheet.create({
   iconActive: { color: '#fff' },
   errSheetTitle: { color: '#f0f0f0', fontSize: 17, fontWeight: '700', marginBottom: 4 },
   errSheetMsg: { color: '#ccc', fontSize: 15, lineHeight: 22 },
+  diagScroll: { maxHeight: 300, backgroundColor: '#0a0a0a', borderRadius: 8, padding: 10 },
+  diagText: { color: '#c4a882', fontSize: 12, fontFamily: 'Menlo', lineHeight: 17 },
   errSheetBtn: {
     marginTop: 16, backgroundColor: '#DA7756', borderRadius: 10,
     paddingVertical: 12, alignItems: 'center',
