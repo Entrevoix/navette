@@ -42,10 +42,12 @@ const KNOWN_RECOGNIZERS: RecognizerOption[] = [
 ];
 
 // Error codes that indicate the *current* recognizer can't serve the request
-// (language missing, service unavailable) but another recognizer might.
+// but another recognizer might. Used only when a non-empty failover chain
+// is queued (i.e. detection surfaced multiple candidates).
+// 5 = ERROR_CLIENT (no-service variant), 7 = ERROR_NO_MATCH_OR_UNAVAILABLE,
 // 11 = ERROR_LANGUAGE_UNAVAILABLE, 12 = ERROR_LANGUAGE_NOT_SUPPORTED,
 // 13 = ERROR_SERVER_UNAVAILABLE.
-const FAILOVER_CODES = new Set([11, 12, 13]);
+const FAILOVER_CODES = new Set([5, 7, 11, 12, 13]);
 
 const PREFERRED_LANG = 'en-US';
 
@@ -95,7 +97,10 @@ function labelForPackage(pkg: string): string {
 
 // Gather everything we know about the device's STT state. Returned as plain
 // text so the user can paste it into a bug report.
-async function collectDiagnostics(lastError: string | null): Promise<string> {
+async function collectDiagnostics(
+  lastError: string | null,
+  eventBuffer: string[] = [],
+): Promise<string> {
   const lines: string[] = [];
   const ts = new Date().toISOString();
   lines.push(`Relay voice diagnostics @ ${ts}`);
@@ -144,6 +149,13 @@ async function collectDiagnostics(lastError: string | null): Promise<string> {
   lines.push(`Saved pkg: ${savedPkg ?? '(null)'}`);
   lines.push(`Saved label: ${savedLabel ?? '(null)'}`);
   lines.push(`Last error: ${lastError ?? '(none)'}`);
+  lines.push('');
+  lines.push(`Recent events (${eventBuffer.length}):`);
+  if (eventBuffer.length === 0) {
+    lines.push('  (none captured)');
+  } else {
+    for (const line of eventBuffer) lines.push('  ' + line);
+  }
   return lines.join('\n');
 }
 
@@ -239,6 +251,16 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   // Last raw STT error — surfaced in the diagnostics dump so the user can
   // share it in a bug report instead of just the friendly message.
   const lastErrorRef = useRef<string | null>(null);
+  // Ring buffer of recent recognizer lifecycle events. Populated by every
+  // listener so diagnostics can show whether the mic ever opened, whether
+  // speech was detected, how long between events, etc.
+  const eventBufferRef = useRef<string[]>([]);
+  // Watchdog for "recognizer started but audio never flowed" — the silent
+  // hang mode where nothing errors and nothing transcribes.
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set when an audio/speech event is observed so the watchdog knows audio
+  // flowed and skips the hang handler.
+  const audioSeenRef = useRef(false);
 
   // Note: com.google.android.tts is intentionally NOT blacklisted. expo-speech-recognition
   // docs explicitly list it as a valid getDefaultRecognitionService() return on some devices.
@@ -273,6 +295,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     return () => {
       if (errTimeout.current) { clearTimeout(errTimeout.current); errTimeout.current = null; }
       if (ring2Timeout.current) { clearTimeout(ring2Timeout.current); ring2Timeout.current = null; }
+      if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       pulseLoop.current?.stop(); pulseLoop.current = null;
       ring1Loop.current?.stop(); ring1Loop.current = null;
       ring2Loop.current?.stop(); ring2Loop.current = null;
@@ -333,7 +356,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   }, [dismissErr]);
 
   const copyDiagnostics = useCallback(async () => {
-    const text = await collectDiagnostics(lastErrorRef.current);
+    const text = await collectDiagnostics(lastErrorRef.current, [...eventBufferRef.current]);
     try { await Clipboard.setStringAsync(text); } catch { /* ignore */ }
     // Replace the current sheet with the diag view, force persistent.
     errPersistRef.current = true;
@@ -342,6 +365,39 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     setErrPersist(true);
     setErrAction('diag');
   }, []);
+
+  const logEventRef = useRef((type: string, info?: unknown) => {
+    const ts = new Date().toISOString().slice(11, 23);
+    const suffix = info ? ' ' + JSON.stringify(info).slice(0, 120) : '';
+    eventBufferRef.current.push(`${ts} ${type}${suffix}`);
+    if (eventBufferRef.current.length > 40) eventBufferRef.current.shift();
+  });
+
+  const clearWatchdogRef = useRef(() => {
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  });
+
+  const startWatchdogRef = useRef(() => {
+    clearWatchdogRef.current();
+    audioSeenRef.current = false;
+    // 6s is enough that a cold recognizer has time to open the mic but short
+    // enough that a genuinely-stuck one doesn't leave the user waiting.
+    watchdogRef.current = setTimeout(() => {
+      watchdogRef.current = null;
+      if (!started.current) return;
+      if (audioSeenRef.current) return;
+      logEventRef.current('watchdog', { fired: true, reason: 'no-audio-6s' });
+      stopListeningRef.current();
+      lastErrorRef.current = 'watchdog: recognizer started but no audio captured within 6s';
+      showErrRef.current(
+        'Recognizer started but no audio was captured.\nThe English voice model may not be downloaded on this service, or another app is holding the mic. Tap "Copy diagnostics" to share the event log.',
+        0, true, 'lang-unavailable',
+      );
+    }, 6000);
+  });
 
   const startPulse = () => {
     pulseAnim.setValue(1);
@@ -390,6 +446,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const stopListening = useCallback(() => {
     if (!started.current) return;
     started.current = false;
+    clearWatchdogRef.current();
     try { ExpoSpeechRecognitionModule.stop(); } catch {}
     setIsListening(false);
     stopPulse();
@@ -411,6 +468,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const startRecognizerRef = useRef(async (pkg: string | null) => {
     const isOnDevicePkg = pkg === 'com.google.android.as';
     const lang = await pickBestLocale(pkg);
+    logEventRef.current('start.request', { pkg: pkg ?? '(default)', lang });
     try {
       ExpoSpeechRecognitionModule.start({
         lang,
@@ -427,8 +485,10 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       setIsListening(true);
       startPulse();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      startWatchdogRef.current();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
+      logEventRef.current('start.throw', { msg });
       showErrRef.current(`STT start failed: ${msg}`, 0, true);
     }
   });
@@ -488,23 +548,57 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       'result',
       (event: ExpoSpeechRecognitionResultEvent) => {
         const transcript = event.results[0]?.transcript;
+        logEventRef.current('result', { isFinal: event.isFinal, len: transcript?.length ?? 0 });
+        audioSeenRef.current = true;
+        clearWatchdogRef.current();
         if (transcript) onTranscriptRef.current(transcript, event.isFinal);
         if (event.isFinal) stopListeningRef.current();
       }
     );
+    // Lifecycle listeners. expo-speech-recognition emits these on Android;
+    // if any is unsupported on iOS/older versions, addListener will still
+    // return a subscription and just never fire — safe no-op.
+    const lifecycleSubs = [
+      ExpoSpeechRecognitionModule.addListener('start', () => {
+        logEventRef.current('start');
+      }),
+      ExpoSpeechRecognitionModule.addListener('audiostart', () => {
+        logEventRef.current('audiostart');
+        audioSeenRef.current = true;
+        clearWatchdogRef.current();
+      }),
+      ExpoSpeechRecognitionModule.addListener('audioend', () => {
+        logEventRef.current('audioend');
+      }),
+      ExpoSpeechRecognitionModule.addListener('speechstart', () => {
+        logEventRef.current('speechstart');
+        audioSeenRef.current = true;
+        clearWatchdogRef.current();
+      }),
+      ExpoSpeechRecognitionModule.addListener('speechend', () => {
+        logEventRef.current('speechend');
+      }),
+      ExpoSpeechRecognitionModule.addListener('nomatch', () => {
+        logEventRef.current('nomatch');
+      }),
+    ];
     const errorSub = ExpoSpeechRecognitionModule.addListener(
       'error',
       async (event: ExpoSpeechRecognitionErrorEvent) => {
+        clearWatchdogRef.current();
         stopListeningRef.current();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const code = (event as any).code ?? -1;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const nativeMsg = (event as any).message;
         lastErrorRef.current = `code=${code} error=${event.error}${nativeMsg ? ' msg=' + nativeMsg : ''}`;
+        logEventRef.current('error', { code, error: event.error });
 
         // 1. Failover: try the next candidate in the chain before giving up
         //    or re-running detection. Applies to language/server-availability
-        //    errors where a different recognizer package might succeed.
+        //    errors AND no-service errors (5/7) — a picker-driven selection
+        //    that fails should silently try the next queued candidate rather
+        //    than bouncing back through detection to the same picker.
         if (FAILOVER_CODES.has(code) && failoverChainRef.current.length > 0) {
           const nextPkg = failoverChainRef.current.shift() ?? null;
           const label = nextPkg ? labelForPackage(nextPkg) : 'System Default';
@@ -566,6 +660,8 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       }
     );
     const endSub = ExpoSpeechRecognitionModule.addListener('end', () => {
+      logEventRef.current('end');
+      clearWatchdogRef.current();
       stopListeningRef.current();
     });
 
@@ -573,6 +669,8 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       resultSub.remove();
       errorSub.remove();
       endSub.remove();
+      lifecycleSubs.forEach((s) => s.remove());
+      clearWatchdogRef.current();
       if (started.current) ExpoSpeechRecognitionModule.stop();
       whisperRecording.current?.stopAndUnloadAsync().catch(() => {});
     };
