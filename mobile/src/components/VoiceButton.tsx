@@ -27,6 +27,9 @@ const SYSTEM_DEFAULT_RECOGNIZER: RecognizerOption = { pkg: '', label: 'System De
 const KNOWN_RECOGNIZERS: RecognizerOption[] = [
   // Android System Intelligence — the actual on-device Google STT service. Prefer first.
   { pkg: 'com.google.android.as', label: 'Google (On-Device)' },
+  // "Speech Services by Google" — the Play Store package that exposes Google STT
+  // on most non-Pixel Androids (installed by anyone using Google TTS).
+  { pkg: 'com.google.android.tts', label: 'Speech Services by Google' },
   { pkg: 'com.google.android.googlequicksearchbox', label: 'Google' },
   { pkg: 'com.google.android.voicesearch', label: 'Google Voice Search' },
   { pkg: 'com.google.android.apps.googleassistant', label: 'Google Assistant' },
@@ -599,10 +602,10 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
               <View style={styles.errActions}>
                 <Pressable
                   style={styles.errActionBtn}
-                  onPress={() => openPlayStore('com.google.android.googlequicksearchbox')}
+                  onPress={() => openPlayStore('com.google.android.tts')}
                 >
-                  <Text style={styles.errActionBtnText}>Install Google Voice</Text>
-                  <Text style={styles.errActionBtnSub}>com.google.android.googlequicksearchbox</Text>
+                  <Text style={styles.errActionBtnText}>Install Speech Services by Google</Text>
+                  <Text style={styles.errActionBtnSub}>com.google.android.tts — provides on-device STT</Text>
                 </Pressable>
                 <Pressable
                   style={styles.errActionBtn}

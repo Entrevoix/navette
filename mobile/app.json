@@ -27,7 +27,23 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-speech-recognition"
+      [
+        "expo-speech-recognition",
+        {
+          "androidSpeechServicePackages": [
+            "com.google.android.tts",
+            "com.google.android.as",
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.voicesearch",
+            "com.google.android.apps.googleassistant",
+            "com.samsung.android.bixby.agent",
+            "com.samsung.android.speech",
+            "com.htc.sense.hsp",
+            "com.nuance.android.vsuite.vsuiteapp",
+            "com.iflytek.speechsuite"
+          ]
+        }
+      ]
     ]
   }
 }
