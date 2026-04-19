@@ -276,3 +276,173 @@ fn data_dir() -> Result<std::path::PathBuf> {
     let home = std::env::var("HOME").context("HOME not set")?;
     Ok(std::path::PathBuf::from(home).join(".local/share/clauded"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn in_memory_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS events (
+                 seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+                 ts         REAL    NOT NULL,
+                 json       TEXT    NOT NULL,
+                 session_id TEXT    NOT NULL DEFAULT ''
+             );
+             CREATE TABLE IF NOT EXISTS scheduled_sessions (
+                 id           TEXT    PRIMARY KEY,
+                 prompt       TEXT    NOT NULL,
+                 container    TEXT,
+                 command      TEXT,
+                 scheduled_at REAL    NOT NULL,
+                 created_at   REAL    NOT NULL,
+                 fired        INTEGER NOT NULL DEFAULT 0
+             );",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn insert_and_query_event() {
+        let conn = in_memory_db();
+        let json = r#"{"type":"test","session_id":"abc"}"#;
+        let seq = insert_event(&conn, 1000.0, json).unwrap();
+        assert!(seq > 0);
+
+        let rows = events_since(&conn, 0).unwrap();
+        assert_eq!(rows.len(), 1);
+        let (row_seq, row_ts, row_json) = &rows[0];
+        assert_eq!(*row_seq, seq);
+        assert_eq!(*row_ts, 1000.0);
+        assert_eq!(row_json, json);
+    }
+
+    #[test]
+    fn events_since_returns_correct_range() {
+        let conn = in_memory_db();
+        let seq1 = insert_event(&conn, 1.0, r#"{"type":"a","session_id":""}"#).unwrap();
+        let seq2 = insert_event(&conn, 2.0, r#"{"type":"b","session_id":""}"#).unwrap();
+        let seq3 = insert_event(&conn, 3.0, r#"{"type":"c","session_id":""}"#).unwrap();
+
+        // since=seq1 should return seq2 and seq3 only
+        let rows = events_since(&conn, seq1).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, seq2);
+        assert_eq!(rows[1].0, seq3);
+    }
+
+    #[test]
+    fn events_since_zero_returns_all() {
+        let conn = in_memory_db();
+        insert_event(&conn, 1.0, r#"{"type":"a","session_id":""}"#).unwrap();
+        insert_event(&conn, 2.0, r#"{"type":"b","session_id":""}"#).unwrap();
+
+        let rows = events_since(&conn, 0).unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn head_seq_returns_zero_when_empty() {
+        let conn = in_memory_db();
+        let seq = head_seq(&conn).unwrap();
+        assert_eq!(seq, 0);
+    }
+
+    #[test]
+    fn head_seq_returns_highest_seq() {
+        let conn = in_memory_db();
+        insert_event(&conn, 1.0, r#"{"type":"a","session_id":""}"#).unwrap();
+        let last = insert_event(&conn, 2.0, r#"{"type":"b","session_id":""}"#).unwrap();
+        assert_eq!(head_seq(&conn).unwrap(), last);
+    }
+
+    #[test]
+    fn scheduled_session_lifecycle() {
+        let conn = in_memory_db();
+
+        insert_scheduled_session(&conn, "id-1", "run tests", None, None, 9000.0, 8000.0).unwrap();
+
+        // Pending should return the session
+        let pending = get_pending_scheduled_sessions(&conn).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["id"], "id-1");
+        assert_eq!(pending[0]["fired"], false);
+
+        // Mark it fired
+        mark_scheduled_session_fired(&conn, "id-1").unwrap();
+
+        // Pending should now be empty
+        let pending_after = get_pending_scheduled_sessions(&conn).unwrap();
+        assert_eq!(pending_after.len(), 0);
+
+        // list_scheduled_sessions still shows it, but fired=true
+        let all = list_scheduled_sessions(&conn).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0]["fired"], true);
+    }
+
+    #[test]
+    fn delete_scheduled_session_removes_it() {
+        let conn = in_memory_db();
+        insert_scheduled_session(&conn, "id-del", "delete me", None, None, 1000.0, 900.0).unwrap();
+        delete_scheduled_session(&conn, "id-del").unwrap();
+        let all = list_scheduled_sessions(&conn).unwrap();
+        assert_eq!(all.len(), 0);
+    }
+
+    #[test]
+    fn get_session_list_groups_by_session_id() {
+        let conn = in_memory_db();
+
+        insert_event(&conn, 1.0, r#"{"type":"a","session_id":"sess-1"}"#).unwrap();
+        insert_event(&conn, 2.0, r#"{"type":"b","session_id":"sess-1"}"#).unwrap();
+        insert_event(&conn, 3.0, r#"{"type":"c","session_id":"sess-2"}"#).unwrap();
+
+        let sessions = get_session_list(&conn).unwrap();
+        assert_eq!(sessions.len(), 2);
+
+        // Both session IDs should appear
+        let ids: Vec<&str> = sessions
+            .iter()
+            .map(|v| v["session_id"].as_str().unwrap())
+            .collect();
+        assert!(ids.contains(&"sess-1"));
+        assert!(ids.contains(&"sess-2"));
+    }
+
+    #[test]
+    fn get_session_events_returns_only_matching_session() {
+        let conn = in_memory_db();
+        insert_event(&conn, 1.0, r#"{"type":"a","session_id":"sess-A"}"#).unwrap();
+        insert_event(&conn, 2.0, r#"{"type":"b","session_id":"sess-B"}"#).unwrap();
+        insert_event(&conn, 3.0, r#"{"type":"c","session_id":"sess-A"}"#).unwrap();
+
+        let events = get_session_events(&conn, "sess-A").unwrap();
+        assert_eq!(events.len(), 2);
+        for ev in &events {
+            let inner = &ev["event"];
+            assert_eq!(inner["session_id"], "sess-A");
+        }
+    }
+
+    #[test]
+    fn truncate_payload_produces_valid_json() {
+        let large = "x".repeat(100);
+        let result = truncate_payload(&large);
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(v["truncated"], true);
+        assert_eq!(v["full_size_bytes"], 100);
+    }
+
+    #[test]
+    fn enforce_retention_does_not_fail_on_small_table() {
+        let conn = in_memory_db();
+        insert_event(&conn, 1.0, r#"{"type":"a","session_id":""}"#).unwrap();
+        // Should succeed without error even with fewer than 10_000 rows
+        enforce_retention(&conn).unwrap();
+        let rows = events_since(&conn, 0).unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+}
