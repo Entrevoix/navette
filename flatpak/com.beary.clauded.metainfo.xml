@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>com.beary.clauded</id>
+  <name>clauded</name>
+  <summary>Self-hosted AI agent remote control daemon</summary>
+  <description>
+    <p>clauded is a Rust PTY daemon that lets you drive Claude Code sessions from a React Native mobile app. Zero cloud relay — works with your own API key, Bedrock, or Vertex.</p>
+    <p>Features: multi-session support, tool approval with timeout, push notifications via ntfy, multi-agent support (claude/codex/gemini/aider), session history, scheduled launches.</p>
+  </description>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <url type="homepage">https://github.com/beary/clauded</url>
+  <provides>
+    <binary>clauded</binary>
+    <binary>clauded-hook</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-04-19">
+      <description><p>Initial release with multi-session, approval timeout, push notifications, and multi-agent support.</p></description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

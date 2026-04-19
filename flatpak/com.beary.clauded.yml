@@ -28,6 +28,7 @@ modules:
       - cargo build --release --offline --frozen
       - install -Dm755 target/release/clauded /app/bin/clauded
       - install -Dm755 target/release/clauded-hook /app/bin/clauded-hook
+      - install -Dm644 flatpak/com.beary.clauded.metainfo.xml /app/share/metainfo/com.beary.clauded.metainfo.xml
     sources:
       - type: dir
         path: ..
