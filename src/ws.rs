@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result};
+use subtle::ConstantTimeEq;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use rusqlite::Connection;
@@ -99,7 +100,7 @@ async fn handle_ws(
                 return Ok(());
             }
             let provided = msg.get("token").and_then(|v| v.as_str()).unwrap_or("");
-            if provided != token {
+            if !constant_time_token_eq(provided, &token) {
                 let _ = sink.send(rejected("bad token")).await;
                 return Ok(());
             }
@@ -561,6 +562,11 @@ async fn handle_input(
             tracing::info!(%client_id, %tool_use_id, %decision_str, "decision buffered (hook not yet registered)");
         }
     }
+}
+
+/// Compare two token strings in constant time to prevent timing attacks.
+fn constant_time_token_eq(a: &str, b: &str) -> bool {
+    a.as_bytes().ct_eq(b.as_bytes()).into()
 }
 
 fn event_frame(seq: i64, ts: f64, json: &str) -> Result<String> {

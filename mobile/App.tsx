@@ -9,6 +9,7 @@ import { LockScreen } from './src/screens/LockScreen';
 import { MainScreen } from './src/screens/MainScreen';
 import { useClaudedWS } from './src/hooks/useClaudedWS';
 import { ServerConfig } from './src/types';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 
 
 const LAST_CONFIG_KEY = 'clauded_last_config';
@@ -95,50 +96,52 @@ export default function App() {
   const isConnected = status === 'connected' || status === 'authenticating' || status === 'connecting';
 
   return (
-    <GestureHandlerRootView style={styles.root}>
-      <SafeAreaProvider>
-        {isLocked && isConnected ? (
-          <LockScreen onUnlock={() => setIsLocked(false)} />
-        ) : isConnected ? (
-          <MainScreen
-            status={status}
-            sessionStatus={sessionStatus}
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSetActiveSessionId={setActiveSessionId}
-            events={events}
-            pendingApprovals={pendingApprovals}
-            lastSeq={lastSeq}
-            viewStartSeq={viewStartSeq}
-            defaultContainer={config?.container}
-            notifyConfig={notifyConfig}
-            reconnecting={reconnecting}
-            reconnectCount={reconnectCount}
-            onDecide={decide}
-            onDisconnect={handleDisconnect}
-            onRun={run}
-            onKill={kill}
-            onRequestNotifyConfig={getNotifyConfig}
-            listDir={listDir}
-            skills={skills}
-            onListSkills={listSkills}
-            pastSessions={pastSessions}
-            sessionHistory={sessionHistory}
-            onListPastSessions={listPastSessions}
-            onGetSessionHistory={getSessionHistory}
-            scheduledSessions={scheduledSessions}
-            onScheduleSession={scheduleSession}
-            onCancelScheduledSession={cancelScheduledSession}
-            onListScheduledSessions={listScheduledSessions}
-          />
-        ) : (
-          <ConnectScreen
-            status={status}
-            onConnect={handleConnect}
-          />
-        )}
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={styles.root}>
+        <SafeAreaProvider>
+          {isLocked && isConnected ? (
+            <LockScreen onUnlock={() => setIsLocked(false)} />
+          ) : isConnected ? (
+            <MainScreen
+              status={status}
+              sessionStatus={sessionStatus}
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSetActiveSessionId={setActiveSessionId}
+              events={events}
+              pendingApprovals={pendingApprovals}
+              lastSeq={lastSeq}
+              viewStartSeq={viewStartSeq}
+              defaultContainer={config?.container}
+              notifyConfig={notifyConfig}
+              reconnecting={reconnecting}
+              reconnectCount={reconnectCount}
+              onDecide={decide}
+              onDisconnect={handleDisconnect}
+              onRun={run}
+              onKill={kill}
+              onRequestNotifyConfig={getNotifyConfig}
+              listDir={listDir}
+              skills={skills}
+              onListSkills={listSkills}
+              pastSessions={pastSessions}
+              sessionHistory={sessionHistory}
+              onListPastSessions={listPastSessions}
+              onGetSessionHistory={getSessionHistory}
+              scheduledSessions={scheduledSessions}
+              onScheduleSession={scheduleSession}
+              onCancelScheduledSession={cancelScheduledSession}
+              onListScheduledSessions={listScheduledSessions}
+            />
+          ) : (
+            <ConnectScreen
+              status={status}
+              onConnect={handleConnect}
+            />
+          )}
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
 

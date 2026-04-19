@@ -1,3 +1,5 @@
+use std::os::unix::fs::PermissionsExt;
+
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
@@ -8,6 +10,9 @@ pub fn open() -> Result<Connection> {
     let db_path = data_dir.join("events.db");
     let conn = Connection::open(&db_path)
         .with_context(|| format!("failed to open DB at {}", db_path.display()))?;
+    // Restrict the database file to owner-only access (rw-------).
+    std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("failed to set permissions on {}", db_path.display()))?;
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          CREATE TABLE IF NOT EXISTS events (
