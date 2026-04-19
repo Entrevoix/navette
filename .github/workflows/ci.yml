@@ -1,0 +1,54 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-registry-
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-
+
+      - name: Install sqlite3
+        run: sudo apt-get install -y libsqlite3-dev
+
+      - name: Run tests
+        run: cargo test --all
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Build release
+        run: cargo build --release
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: cd mobile && npm ci
+
+      - name: Type check
+        run: cd mobile && npx tsc --noEmit
+
+      - name: Run tests
+        run: cd mobile && npx jest --forceExit

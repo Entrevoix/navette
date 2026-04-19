@@ -61,6 +61,7 @@ export interface PendingApproval {
   tool_input: Record<string, unknown>;
   seq: number;
   expires_at?: number;
+  urgent?: boolean;
 }
 
 export interface ApprovalPendingEvent {
@@ -70,11 +71,21 @@ export interface ApprovalPendingEvent {
   expires_at: number;
 }
 
+export interface ApprovalWarningEvent {
+  type: 'approval_warning';
+  tool_use_id: string;
+  seconds_remaining: number;
+  session_id?: string;
+}
+
 export interface SessionInfo {
   session_id: string;
   prompt: string;
   container?: string | null;
   started_at: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'authenticating' | 'connected' | 'error';
@@ -97,5 +108,28 @@ export interface DirListingEvent {
   type: 'dir_listing';
   path: string;
   entries: DirEntry[];
+  error?: string;
+}
+
+export interface PastSessionInfo {
+  session_id: string;
+  event_count: number;
+  started_at: number;
+  last_event: number;
+}
+
+export interface ScheduledSessionInfo {
+  id: string;
+  prompt: string;
+  container?: string | null;
+  command?: string | null;
+  scheduled_at: number;
+  created_at: number;
+  fired: boolean;
+}
+
+export interface TestNotificationSentEvent {
+  type: 'test_notification_sent';
+  ok: boolean;
   error?: string;
 }

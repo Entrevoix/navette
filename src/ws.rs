@@ -1,6 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
 use anyhow::{Context, Result};
+use subtle::ConstantTimeEq;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use rusqlite::Connection;
@@ -16,6 +20,7 @@ use crate::{BufferedDecisions, Decision, PendingApprovals, Sessions};
 /// Broadcast channel payload: (seq, unix_ts, raw_json_string)
 pub type EventTx = broadcast::Sender<(i64, f64, String)>;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn serve(
     port: u16,
     token: String,
@@ -96,7 +101,7 @@ async fn handle_ws(
                 return Ok(());
             }
             let provided = msg.get("token").and_then(|v| v.as_str()).unwrap_or("");
-            if provided != token {
+            if !constant_time_token_eq(provided, &token) {
                 let _ = sink.send(rejected("bad token")).await;
                 return Ok(());
             }
@@ -210,6 +215,11 @@ async fn handle_ws(
                                         .and_then(|v| v.as_str())
                                         .filter(|s| !s.is_empty())
                                         .map(|s| s.to_string());
+                                    let command = v
+                                        .get("command")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string());
 
                                     let session_id = new_session_id();
                                     let (kill_tx, kill_rx) = oneshot::channel::<()>();
@@ -217,8 +227,12 @@ async fn handle_ws(
                                     sessions.lock().await.insert(session_id.clone(), crate::SessionEntry {
                                         prompt: prompt.to_string(),
                                         container: container.clone(),
+                                        command: command.clone(),
                                         started_at: unix_ts(),
                                         kill_tx: Some(kill_tx),
+                                        input_tokens: Arc::new(AtomicU64::new(0)),
+                                        output_tokens: Arc::new(AtomicU64::new(0)),
+                                        cache_read_tokens: Arc::new(AtomicU64::new(0)),
                                     });
                                     crate::emit_session_list_changed(&sessions, &events_tx).await;
 
@@ -227,6 +241,7 @@ async fn handle_ws(
                                         container,
                                         dangerously_skip_permissions,
                                         work_dir,
+                                        command,
                                     };
                                     tokio::spawn(crate::run_session(
                                         session_id.clone(),
@@ -264,12 +279,118 @@ async fn handle_ws(
                                 if sink.send(Message::Text(reply)).await.is_err() {
                                     break;
                                 }
+                            } else if msg_type == "get_token_usage" {
+                                let session_id = v.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+                                let reply = if let Some(entry) = sessions.lock().await.get(session_id) {
+                                    serde_json::to_string(&serde_json::json!({
+                                        "type": "token_usage",
+                                        "session_id": session_id,
+                                        "input_tokens": entry.input_tokens.load(Ordering::Relaxed),
+                                        "output_tokens": entry.output_tokens.load(Ordering::Relaxed),
+                                        "cache_read_tokens": entry.cache_read_tokens.load(Ordering::Relaxed),
+                                    })).unwrap_or_default()
+                                } else {
+                                    serde_json::to_string(&serde_json::json!({
+                                        "type": "token_usage",
+                                        "session_id": session_id,
+                                        "input_tokens": 0,
+                                        "output_tokens": 0,
+                                        "cache_read_tokens": 0,
+                                    })).unwrap_or_default()
+                                };
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
                             } else if msg_type == "get_notify_config" {
                                 let reply = serde_json::to_string(&serde_json::json!({
                                     "type": "notify_config",
                                     "topic": cfg.notify.ntfy_topic,
                                     "base_url": cfg.notify.ntfy_base_url,
                                 })).unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "send_test_notification" {
+                                let notify_cfg = cfg.notify.clone();
+                                let result = crate::notify::NotifyClient::new(&notify_cfg)
+                                    .publish("clauded test", "Mobile onboarding test", "default", &["bell"])
+                                    .await;
+                                let reply = match result {
+                                    Ok(()) => serde_json::to_string(&serde_json::json!({
+                                        "type": "test_notification_sent",
+                                        "ok": true,
+                                    })).unwrap_or_default(),
+                                    Err(e) => serde_json::to_string(&serde_json::json!({
+                                        "type": "test_notification_sent",
+                                        "ok": false,
+                                        "error": e.to_string(),
+                                    })).unwrap_or_default(),
+                                };
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "list_skills" {
+                                let home = std::env::var("HOME").unwrap_or_default();
+                                let skills_dir = std::path::PathBuf::from(&home).join(".claude/skills");
+                                let mut skills = Vec::new();
+                                if let Ok(entries) = std::fs::read_dir(&skills_dir) {
+                                    for entry in entries.flatten() {
+                                        if entry.path().is_dir() {
+                                            let skill_name = entry.file_name().to_string_lossy().to_string();
+                                            let skill_md = entry.path().join("SKILL.md");
+                                            let description = std::fs::read_to_string(&skill_md)
+                                                .ok()
+                                                .and_then(|s| {
+                                                    s.lines()
+                                                        .find(|l| !l.starts_with('#') && !l.trim().is_empty() && !l.starts_with("---"))
+                                                        .map(|l| l.trim().to_string())
+                                                })
+                                                .unwrap_or_default();
+                                            skills.push(serde_json::json!({
+                                                "name": skill_name,
+                                                "description": description,
+                                            }));
+                                        }
+                                    }
+                                }
+                                skills.sort_by(|a, b| {
+                                    a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+                                });
+                                let response = serde_json::json!({ "type": "skills_list", "skills": skills });
+                                if let Ok(s) = serde_json::to_string(&response) {
+                                    if sink.send(Message::Text(s)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "list_past_sessions" {
+                                let db2 = db.clone();
+                                let sessions_data = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::get_session_list(&conn)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let reply = serde_json::to_string(
+                                    &serde_json::json!({"type": "past_sessions_list", "sessions": sessions_data})
+                                ).unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "get_session_history" {
+                                let session_id = v.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let db2 = db.clone();
+                                let events_data = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::get_session_events(&conn, &session_id)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let sid = v.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+                                let reply = serde_json::to_string(
+                                    &serde_json::json!({"type": "session_history", "session_id": sid, "events": events_data})
+                                ).unwrap_or_default();
                                 if sink.send(Message::Text(reply)).await.is_err() {
                                     break;
                                 }
@@ -333,6 +454,83 @@ async fn handle_ws(
                                         break;
                                     }
                                 }
+                            } else if msg_type == "schedule_session" {
+                                if let Some(prompt) = v.get("prompt").and_then(|p| p.as_str()) {
+                                    let scheduled_at = v
+                                        .get("scheduled_at")
+                                        .and_then(|v| v.as_f64())
+                                        .unwrap_or_else(unix_ts);
+                                    let container = v
+                                        .get("container")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string());
+                                    let command = v
+                                        .get("command")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string());
+                                    let sched_id = new_session_id();
+                                    let now = unix_ts();
+                                    {
+                                        let conn = db.lock().unwrap();
+                                        let _ = db::insert_scheduled_session(
+                                            &conn,
+                                            &sched_id,
+                                            prompt,
+                                            container.as_deref(),
+                                            command.as_deref(),
+                                            scheduled_at,
+                                            now,
+                                        );
+                                    }
+                                    tracing::info!(%client_id, %sched_id, scheduled_at, "session scheduled");
+                                    let reply = serde_json::to_string(&serde_json::json!({
+                                        "type": "session_scheduled",
+                                        "id": sched_id,
+                                        "scheduled_at": scheduled_at,
+                                    }))
+                                    .unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "list_scheduled_sessions" {
+                                let db2 = db.clone();
+                                let scheduled = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::list_scheduled_sessions(&conn)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "scheduled_sessions_list",
+                                    "sessions": scheduled,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "cancel_scheduled_session" {
+                                let sched_id = v
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::delete_scheduled_session(&conn, &sched_id);
+                                }
+                                tracing::info!(%client_id, %sched_id, "scheduled session cancelled");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "scheduled_session_cancelled",
+                                    "id": sched_id,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
                             } else {
                                 handle_input(&v, &client_id, &pending, &buffered).await;
                             }
@@ -384,6 +582,11 @@ async fn handle_input(
             tracing::info!(%client_id, %tool_use_id, %decision_str, "decision buffered (hook not yet registered)");
         }
     }
+}
+
+/// Compare two token strings in constant time to prevent timing attacks.
+fn constant_time_token_eq(a: &str, b: &str) -> bool {
+    a.as_bytes().ct_eq(b.as_bytes()).into()
 }
 
 fn event_frame(seq: i64, ts: f64, json: &str) -> Result<String> {

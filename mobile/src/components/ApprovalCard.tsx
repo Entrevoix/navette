@@ -5,7 +5,10 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
+  withSequence,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { PendingApproval } from '../types';
@@ -96,6 +99,30 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
     return () => clearInterval(id);
   }, [approval.expires_at]);
 
+  const isUrgent = approval.urgent === true || (secsRemaining !== null && secsRemaining <= 30);
+  const borderOpacity = useSharedValue(1);
+
+  useEffect(() => {
+    if (isUrgent) {
+      borderOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.2, { duration: 600 }),
+          withTiming(1, { duration: 600 })
+        ),
+        -1,
+        false
+      );
+    } else {
+      borderOpacity.value = withTiming(1, { duration: 200 });
+    }
+  }, [isUrgent, borderOpacity]);
+
+  const urgentBorderStyle = useAnimatedStyle(() => ({
+    borderColor: isUrgent
+      ? `rgba(249, 115, 22, ${borderOpacity.value})`
+      : '#2a2a2a',
+  }));
+
   const dismiss = useCallback((allow: boolean) => {
     if (allow) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -148,7 +175,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       </Animated.View>
 
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={[styles.card, animatedStyle]}>
+        <Animated.View style={[styles.card, animatedStyle, urgentBorderStyle]}>
           <View style={styles.header}>
             <View style={styles.toolBadge}>
               <Text style={styles.toolName}>{approval.tool_name}</Text>

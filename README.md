@@ -1,176 +1,186 @@
-# claude-desktop-ssh
+# clauded
 
-A multi-device native client for [Claude Code](https://www.anthropic.com/claude-code) — built for developing on the go.
+**Self-hosted AI agent remote control — drive Claude Code from your phone**
 
-Raw Termux+SSH works but the UX is painful: tiny keyboard, no context on reconnect, tool approvals buried in terminal noise. This project wraps Claude Code CLI in a persistent daemon with a WebSocket resume protocol and a React Native Android app. Tool approvals become swipeable cards. Disconnecting and reconnecting replays what you missed.
+![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
+---
+
+clauded is a Rust PTY daemon that lets you control Claude Code (and other AI agent CLIs) from a React Native mobile app. No cloud relay, no subscription — just your own API key and a WebSocket connection over your local network or VPN.
+
+---
+
+## Features
+
+- **Multi-session daemon** — up to 4 concurrent agent sessions (configurable)
+- **Tool approval gate** — permit or deny tool calls from your phone with a configurable timeout and auto-deny on expiry; orange pulse warning ≤30s
+- **Mid-session text input** — steer the agent without stopping the session
+- **Skill launcher** — browse `~/.claude/skills/` and run any skill as `/skill-name` from mobile
+- **Advanced session start** — collapsible panel with custom command, work-dir picker, and `--dangerously-skip-permissions` toggle
+- **Push notifications** — via [ntfy.sh](https://ntfy.sh) (self-hostable, no Apple Push/FCM account needed)
+- **Multi-agent support** — run `claude`, `codex`, `gemini`, `aider`, or any custom binary
+- **Visual diff viewer** — collapsible unified diff with +/− line coloring for file edits
+- **Session dashboard** — live cards with agent label, status, elapsed time, and token usage
+- **Scheduled sessions** — fire at +1h, +4h, +8h, or a custom time
+- **Session history replay** — past sessions render full tool-use detail with diffs, not just plain text
+- **Telegram notifications** — optional channel alongside ntfy
+- **WebSocket auto-reconnect** — exponential backoff with event replay on reconnect
+
+---
 
 ## Architecture
 
 ```
-[claude --output-format stream-json]
-         ↑ PTY (events stream as JSON lines)
-    [clauded — Rust/Tokio daemon]
-         ├── PreToolUse hook binary (clauded-hook)
-         │     └── Unix socket: $XDG_RUNTIME_DIR/clauded/hook.sock
-         │           blocks claude until user decides
-         ├── SQLite: ~/.local/share/clauded/events.db
-         │     WAL mode, 10k event retention, 64KB max payload
-         ├── WebSocket: 0.0.0.0:7878
-         │     token auth → attach+replay → live broadcast
-         │     receives approval decisions from clients
-         └── stdin fallback: y/n <tool_use_id>
-
-    [React Native Android app]
-         ├── ConnectScreen: host / port / token → AsyncStorage
-         ├── MainScreen: event feed + pending approval cards
-         └── ApprovalCard: swipe right=allow, left=deny → WS input message
+Mobile (React Native/Expo)
+    ↕ WebSocket :7878 (token-auth)
+clauded (Rust PTY daemon)
+    ├── PTY subprocess (claude / codex / aider / gemini / custom)
+    ├── Unix socket hook (PreToolUse approval gate)
+    ├── SQLite event store
+    └── ntfy.sh / Telegram notifications
 ```
 
-## How the hook gate works
+Two binaries are built:
 
-Claude emits events via `--output-format stream-json` through a PTY. Before executing each tool, Claude Code invokes the `PreToolUse` hook subprocess (`clauded-hook`).
+| Binary | Role |
+|---|---|
+| `clauded` | Long-running WebSocket daemon and PTY manager |
+| `clauded-hook` | One-shot Claude Code hook; blocks tool execution pending mobile approval |
 
-`clauded` writes hook config to `~/.claude/settings.local.json` before spawning Claude (atomic tempfile + rename):
+---
+
+## Installation
+
+### Option A: Flatpak (recommended for Linux desktop)
+
+```bash
+# Build the Flatpak bundle (from the flatpak/ directory)
+cd flatpak && ./build.sh
+
+# Install
+flatpak install --user clauded.flatpak
+
+# Install the systemd user service
+cp flatpak/com.beary.clauded.service ~/.config/systemd/user/clauded.service
+systemctl --user daemon-reload
+
+# Enable and start
+systemctl --user enable --now clauded
+
+# Check status
+systemctl --user status clauded
+```
+
+### Option B: Build from source
+
+Prerequisites: Rust 1.75+, SQLite 3 dev headers
+
+```bash
+cargo build --release
+
+# Install both binaries
+sudo install -Dm755 target/release/clauded /usr/local/bin/clauded
+sudo install -Dm755 target/release/clauded-hook /usr/local/bin/clauded-hook
+
+# Run
+clauded
+```
+
+### Mobile app (Android)
+
+Sideload the debug APK via ADB:
+
+```bash
+adb install app-debug.apk
+```
+
+---
+
+## Configuration
+
+Config is auto-generated at `~/.config/clauded/config.toml` on first run. The auth token and ntfy topic are randomly generated and written at mode `0600`.
+
+```toml
+token = "your-auth-token-here"          # auto-generated; copy into the mobile app
+ws_port = 7878
+approval_ttl_secs = 300                 # auto-deny pending approvals after 5 minutes
+approval_warn_before_secs = 30          # push warning at 30s remaining
+max_concurrent_sessions = 4
+
+ntfy_base_url = "https://ntfy.sh"       # replace with your self-hosted URL if needed
+ntfy_topic = "auto-generated"           # subscribe at ntfy_base_url/ntfy_topic
+ntfy_token = ""                         # ntfy access token (leave empty for public topics)
+
+# Optional Telegram notifications
+telegram_bot_token = ""
+telegram_chat_id = ""
+```
+
+The token and ntfy topic are logged on first startup. Retrieve them anytime:
+
+```bash
+journalctl --user -u clauded -n 20
+# or
+cat ~/.config/clauded/config.toml
+```
+
+---
+
+## Connecting the mobile app
+
+1. Start clauded on your server or desktop
+2. Find the auth token in `~/.config/clauded/config.toml` or the startup logs
+3. In the mobile app: enter `ws://your-host:7878`, paste the token, tap **Connect**
+
+For remote access over the internet, tunnel the WebSocket port through WireGuard, Tailscale, or SSH port forwarding. Do not expose port 7878 directly to the internet without a TLS terminator.
+
+---
+
+## Hook setup (tool approvals)
+
+`clauded-hook` must be registered as a Claude Code `PreToolUse` hook. Add to `~/.claude/settings.json`:
 
 ```json
 {
-  "permissions": {
-    "allow": ["Bash(*)", "Write(*)", "Read(*)", "Edit(*)", ...]
-  },
   "hooks": {
-    "PreToolUse": [{"matcher": ".*", "hooks": [{"type": "command", "command": "/path/to/clauded-hook"}]}]
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "command": "clauded-hook"
+      }
+    ]
   }
 }
 ```
 
-The `permissions.allow` list pre-approves tools so Claude doesn't prompt interactively — the hook is the sole approval gate.
+When a tool call fires, `clauded-hook` contacts the daemon via Unix socket and blocks until the mobile app sends permit or deny, or until `approval_ttl_secs` elapses (auto-deny).
 
-Hook protocol:
-1. `clauded-hook` reads tool call JSON from stdin (`tool_use_id`, `tool_name`, `tool_input`)
-2. Connects to daemon Unix socket (500ms timeout — fail closed on miss)
-3. Sends `{"tool_use_id": "...", "tool_name": "...", "input": {...}}` + EOF
-4. Blocks until daemon responds `{"decision": "allow"}` or `{"decision": "deny"}`
-5. Exit 0 → allow, exit 2 → deny. Every error path exits 2.
+---
 
-Race handling: the assistant event containing the `tool_use` block is broadcast over WebSocket before the hook connects to the socket (~20ms later). A `BufferedDecisions` map absorbs WS approvals that arrive before the hook registers — the hook drains this buffer on connect.
+## Supported agents
 
-## WebSocket protocol
+| Agent | Command |
+|---|---|
+| Claude Code | `claude` (default) |
+| OpenAI Codex | `openai codex` |
+| Gemini CLI | `gemini` |
+| Aider | `aider` |
+| Custom | any binary in `$PATH` |
 
-### Authentication
+The `command` field is optional in the `run` WebSocket message. When omitted, the daemon falls back to the `CLAUDE_BIN` environment variable, then `claude`.
 
-```json
-// client → server
-{"type": "hello", "token": "shared-secret", "client_id": "my-phone"}
+---
 
-// server → client
-{"type": "welcome", "client_id": "my-phone"}
-// or
-{"type": "rejected", "reason": "bad token"}
-```
+## Environment variables
 
-### Replay + live stream
+| Variable | Effect |
+|---|---|
+| `CLAUDE_BIN` | Override the default agent binary |
+| `RUST_LOG` | Log filter (e.g. `info`, `debug`, `clauded=trace`) |
 
-```json
-// client → server
-{"type": "attach", "since": 0}
+---
 
-// server → client: replay seq > 0, then live
-{"seq": 1, "ts": 1713380000.1, "event": {...}}
-{"type": "caught-up", "seq": 17}
-{"seq": 18, ...}  // live from here
-```
+## License
 
-`since` is exclusive — pass the last `seq` you saw to resume without gaps.
-
-### Tool approval
-
-```json
-// client → server (swipe right in app, or any time after seeing the assistant event)
-{"type": "input", "tool_use_id": "toolu_abc123", "decision": "y"}
-// or "n" to deny
-```
-
-First client to send wins. Concurrent tool calls use independent `tool_use_id` keys.
-
-## Configuration
-
-`~/.config/clauded/config.toml` (created `chmod 600` on first run):
-
-```toml
-token = "randomly-generated-32-char-token"
-ws_port = 7878
-```
-
-The token is generated randomly on first launch. Copy it into the Android app's Connect screen.
-
-## Building
-
-```bash
-cargo build --release
-# produces: target/release/clauded  target/release/clauded-hook
-# both binaries must be in the same directory
-```
-
-## Running
-
-```bash
-clauded "refactor the auth module"
-```
-
-clauded blocks until Claude exits. Events stream to SQLite and WebSocket in real time. Approve tool calls from the Android app or by typing `y <tool_use_id>` in the terminal.
-
-**Stdin fallback** (useful without a WS client):
-```
-y toolu_01XUfSMihoL3EquzSZsEQxqR
-n toolu_01XUfSMihoL3EquzSZsEQxqR
-```
-
-## Android app
-
-Built with Expo (bare workflow), targeting Android.
-
-```bash
-cd mobile
-npm install
-npx expo run:android   # or: npx expo start → Expo Go
-```
-
-Connect screen saves host/port/token to AsyncStorage. The main screen shows:
-- Pending approval cards (swipe right = allow, left = deny)
-- Live event feed (color-coded by type: tool call, assistant text, result)
-- Connection status dot + disconnect button
-
-## Network
-
-Use [Tailscale](https://tailscale.com). clauded binds `0.0.0.0:7878` — Tailscale makes it reachable from your phone's Tailscale IP with no open ports. No cloud relay.
-
-## Event storage
-
-- DB: `~/.local/share/clauded/events.db` (SQLite WAL)
-- Schema: `events(seq INTEGER PK AUTOINCREMENT, ts REAL, json TEXT)`
-- Retention: 10,000 most recent events (enforced every 100 inserts)
-- Max payload: 64KB inline; larger truncated with `{"truncated": true, "full_size_bytes": N}`
-
-## Status
-
-Core implementation complete and smoke-tested end-to-end:
-
-- [x] PTY spawn with hook settings injection
-- [x] `clauded-hook` binary — blocks, correlates by `tool_use_id`, fail-closed
-- [x] Unix socket IPC with buffered decision race fix
-- [x] SQLite event log with WAL + retention
-- [x] WebSocket server — auth, replay, live broadcast, bidirectional approvals
-- [x] Stdin fallback approvals
-- [x] React Native Android app — connect, event feed, swipeable approval cards
-- [ ] Approval timeout (auto-deny after N seconds)
-- [ ] Push notifications (ntfy.sh or FCM)
-- [ ] Tauri desktop app
-- [ ] CI release pipeline (GitHub Actions, `linux/amd64` + `linux/arm64`)
-
-## Requirements
-
-- [Claude Code](https://www.anthropic.com/claude-code) installed and authenticated
-- [Tailscale](https://tailscale.com) on all devices
-- Rust toolchain (1.75+)
-- Node.js + npm (for the Android app)
-- Android SDK / Expo environment (for the Android app)
+MIT

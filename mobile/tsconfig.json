@@ -9,6 +9,7 @@
     "esModuleInterop": true,
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "types": ["jest"]
   }
 }

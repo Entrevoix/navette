@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "backgroundColor": "#0a0a0a"
+      "backgroundColor": "#DA7756"
     },
     "ios": {
       "infoPlist": {
@@ -27,7 +27,16 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-speech-recognition"
+      [
+        "expo-speech-recognition",
+        {
+          "androidSpeechServicePackages": [
+            "com.google.android.as",
+            "com.google.android.tts"
+          ]
+        }
+      ],
+      "./plugins/withSpeechRecognitionQueries"
     ]
   }
 }

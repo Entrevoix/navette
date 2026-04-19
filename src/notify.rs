@@ -9,6 +9,8 @@ pub struct NotifyClient {
     base_url: String,
     topic: String,
     token: String,
+    telegram_bot_token: String,
+    telegram_chat_id: String,
 }
 
 impl NotifyClient {
@@ -23,6 +25,8 @@ impl NotifyClient {
             base_url: cfg.ntfy_base_url.trim_end_matches('/').to_string(),
             topic: cfg.ntfy_topic.clone(),
             token: cfg.ntfy_token.clone(),
+            telegram_bot_token: cfg.telegram_bot_token.clone(),
+            telegram_chat_id: cfg.telegram_chat_id.clone(),
         }
     }
 
@@ -55,5 +59,23 @@ impl NotifyClient {
             tracing::warn!("ntfy publish failed: {e}");
         }
         Ok(())
+    }
+
+    pub async fn send_telegram(&self, text: &str) {
+        if self.telegram_bot_token.is_empty() || self.telegram_chat_id.is_empty() {
+            return;
+        }
+        let url = format!(
+            "https://api.telegram.org/bot{}/sendMessage",
+            self.telegram_bot_token
+        );
+        let payload = serde_json::json!({
+            "chat_id": self.telegram_chat_id,
+            "text": text,
+            "parse_mode": "HTML"
+        });
+        if let Err(e) = self.client.post(&url).json(&payload).send().await {
+            tracing::warn!("Telegram notification failed: {e}");
+        }
     }
 }

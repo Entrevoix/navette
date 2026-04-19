@@ -3,16 +3,19 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, StyleSheet } from 'react-native';
+
 import { ConnectScreen } from './src/screens/ConnectScreen';
 import { LockScreen } from './src/screens/LockScreen';
 import { MainScreen } from './src/screens/MainScreen';
 import { useClaudedWS } from './src/hooks/useClaudedWS';
 import { ServerConfig } from './src/types';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+
 
 const LAST_CONFIG_KEY = 'clauded_last_config';
 
 export default function App() {
-  const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, connect, disconnect, decide, run, kill, getNotifyConfig, listDir } = useClaudedWS();
+  const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, testNotificationResult, reconnecting, reconnectCount, connect, disconnect, decide, run, kill, sendInput, getNotifyConfig, sendTestNotification, listDir, skills, listSkills, pastSessions, sessionHistory, listPastSessions, getSessionHistory, scheduledSessions, scheduleSession, cancelScheduledSession, listScheduledSessions } = useClaudedWS();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [isLocked, setIsLocked] = useState(false);
 
@@ -93,38 +96,55 @@ export default function App() {
   const isConnected = status === 'connected' || status === 'authenticating' || status === 'connecting';
 
   return (
-    <GestureHandlerRootView style={styles.root}>
-      <SafeAreaProvider>
-        {isLocked && isConnected ? (
-          <LockScreen onUnlock={() => setIsLocked(false)} />
-        ) : isConnected ? (
-          <MainScreen
-            status={status}
-            sessionStatus={sessionStatus}
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSetActiveSessionId={setActiveSessionId}
-            events={events}
-            pendingApprovals={pendingApprovals}
-            lastSeq={lastSeq}
-            viewStartSeq={viewStartSeq}
-            defaultContainer={config?.container}
-            notifyConfig={notifyConfig}
-            onDecide={decide}
-            onDisconnect={handleDisconnect}
-            onRun={run}
-            onKill={kill}
-            onRequestNotifyConfig={getNotifyConfig}
-            listDir={listDir}
-          />
-        ) : (
-          <ConnectScreen
-            status={status}
-            onConnect={handleConnect}
-          />
-        )}
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={styles.root}>
+        <SafeAreaProvider>
+          {isLocked && isConnected ? (
+            <LockScreen onUnlock={() => setIsLocked(false)} />
+          ) : isConnected ? (
+            <MainScreen
+              status={status}
+              sessionStatus={sessionStatus}
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSetActiveSessionId={setActiveSessionId}
+              events={events}
+              pendingApprovals={pendingApprovals}
+              lastSeq={lastSeq}
+              viewStartSeq={viewStartSeq}
+              defaultContainer={config?.container}
+              notifyConfig={notifyConfig}
+              reconnecting={reconnecting}
+              reconnectCount={reconnectCount}
+              onDecide={decide}
+              onDisconnect={handleDisconnect}
+              onRun={run}
+              onKill={kill}
+              onSendInput={sendInput}
+              onRequestNotifyConfig={getNotifyConfig}
+              onSendTestNotification={sendTestNotification}
+              testNotificationResult={testNotificationResult}
+              listDir={listDir}
+              skills={skills}
+              onListSkills={listSkills}
+              pastSessions={pastSessions}
+              sessionHistory={sessionHistory}
+              onListPastSessions={listPastSessions}
+              onGetSessionHistory={getSessionHistory}
+              scheduledSessions={scheduledSessions}
+              onScheduleSession={scheduleSession}
+              onCancelScheduledSession={cancelScheduledSession}
+              onListScheduledSessions={listScheduledSessions}
+            />
+          ) : (
+            <ConnectScreen
+              status={status}
+              onConnect={handleConnect}
+            />
+          )}
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
 

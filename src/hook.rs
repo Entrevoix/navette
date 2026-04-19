@@ -196,3 +196,85 @@ fn unix_ts() -> f64 {
         .unwrap_or_default()
         .as_secs_f64()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::Decision;
+
+    #[test]
+    fn decision_allow_serializes_to_allow_string() {
+        let d = Decision::Allow;
+        let s = match &d {
+            Decision::Allow => "allow",
+            Decision::Deny => "deny",
+        };
+        assert_eq!(s, "allow");
+    }
+
+    #[test]
+    fn decision_deny_serializes_to_deny_string() {
+        let d = Decision::Deny;
+        let s = match &d {
+            Decision::Allow => "allow",
+            Decision::Deny => "deny",
+        };
+        assert_eq!(s, "deny");
+    }
+
+    #[test]
+    fn decision_equality() {
+        assert_eq!(Decision::Allow, Decision::Allow);
+        assert_eq!(Decision::Deny, Decision::Deny);
+        assert_ne!(Decision::Allow, Decision::Deny);
+    }
+
+    #[test]
+    fn decision_clone() {
+        let original = Decision::Allow;
+        let cloned = original.clone();
+        assert_eq!(original, cloned);
+
+        let original2 = Decision::Deny;
+        let cloned2 = original2.clone();
+        assert_eq!(original2, cloned2);
+    }
+
+    #[test]
+    fn hook_response_json_contains_decision_field() {
+        use super::HookResponse;
+        let resp = HookResponse {
+            decision: "allow".to_string(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["decision"], "allow");
+    }
+
+    #[test]
+    fn hook_request_deserializes_with_defaults() {
+        use super::HookRequest;
+        let json = r#"{"tool_use_id":"tid-1","tool_name":"bash","input":{}}"#;
+        let req: HookRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.tool_use_id, "tid-1");
+        assert_eq!(req.tool_name, "bash");
+        // session_id has #[serde(default)] — should be empty string
+        assert_eq!(req.session_id, "");
+    }
+
+    #[test]
+    fn hook_request_deserializes_with_session_id() {
+        use super::HookRequest;
+        let json = r#"{"tool_use_id":"tid-2","tool_name":"read_file","session_id":"sess-xyz","input":{"path":"/tmp/x"}}"#;
+        let req: HookRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.tool_use_id, "tid-2");
+        assert_eq!(req.session_id, "sess-xyz");
+    }
+
+    #[test]
+    fn socket_dir_returns_path_under_runtime_dir() {
+        use super::socket_dir;
+        let dir = socket_dir().unwrap();
+        // Should end with "clauded"
+        assert_eq!(dir.file_name().and_then(|n| n.to_str()), Some("clauded"));
+    }
+}

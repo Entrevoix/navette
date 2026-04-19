@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { ApprovalCard } from './ApprovalCard';
+import { ToolCallRow } from './EventLog';
 import {
   AssistantEvent,
   EventFrame,
@@ -22,6 +23,8 @@ interface ChatViewProps {
   onDecide: (tool_use_id: string, allow: boolean) => void;
   viewStartSeq: number;
   activeSessionId?: string | null;
+  sessionRunning?: boolean;
+  onSendInput?: (text: string) => void;
 }
 
 function buildResultMap(events: EventFrame[]): Map<string, string> {
@@ -35,17 +38,8 @@ function buildResultMap(events: EventFrame[]): Map<string, string> {
   return map;
 }
 
-function summarizeInput(name: string, input: Record<string, unknown>): string {
-  if (name === 'Bash' && input.command) return String(input.command).slice(0, 120);
-  if (input.path) return String(input.path).slice(0, 120);
-  if (input.file_path) return String(input.file_path).slice(0, 120);
-  if (input.pattern) return String(input.pattern).slice(0, 120);
-  const first = Object.values(input)[0];
-  return first ? String(first).slice(0, 120) : '';
-}
-
-function ToolCallRow({
-  name, input, resultContent, isPending, onDecide, approval,
+function PendingToolCallRow({
+  toolUseId, name, input, resultContent, isPending, onDecide, approval,
 }: {
   toolUseId: string;
   name: string;
@@ -55,97 +49,23 @@ function ToolCallRow({
   onDecide: (id: string, allow: boolean) => void;
   approval?: PendingApproval;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const summary = summarizeInput(name, input);
-
   if (isPending && approval) {
     return <ApprovalCard approval={approval} onDecide={onDecide} />;
   }
-
   return (
-    <View style={tcStyles.container}>
-      <Pressable onPress={() => setExpanded(x => !x)} style={tcStyles.header}>
-        <View style={tcStyles.nameRow}>
-          <Text style={[tcStyles.status, resultContent !== undefined ? tcStyles.statusDone : tcStyles.statusPending]}>
-            {resultContent !== undefined ? '✓' : '·'}
-          </Text>
-          <Text style={tcStyles.toolName}>{name}</Text>
-          {!expanded && summary.length > 0 && (
-            <Text style={tcStyles.summary} numberOfLines={1}>{summary}</Text>
-          )}
-        </View>
-        <Text style={tcStyles.chevron}>{expanded ? '▲' : '▼'}</Text>
-      </Pressable>
-      {expanded && (
-        <View style={tcStyles.body}>
-          <Text selectable style={tcStyles.code}>{JSON.stringify(input, null, 2)}</Text>
-          {resultContent !== undefined && (
-            <>
-              <View style={tcStyles.divider} />
-              <Text selectable style={tcStyles.result}>
-                {resultContent.length > 4000 ? resultContent.slice(0, 4000) + '\n…' : resultContent}
-              </Text>
-            </>
-          )}
-        </View>
-      )}
-    </View>
+    <ToolCallRow
+      toolUseId={toolUseId}
+      name={name}
+      input={input}
+      resultContent={resultContent}
+    />
   );
 }
 
-const tcStyles = StyleSheet.create({
-  container: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#222',
-    backgroundColor: '#0d0d0d',
-    overflow: 'hidden',
-    marginVertical: 2,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
-  status: { fontSize: 12, width: 14 },
-  statusDone: { color: '#4ade80' },
-  statusPending: { color: '#71717a' },
-  toolName: { color: '#93c5fd', fontSize: 13, fontWeight: '600' },
-  summary: {
-    color: '#7e8ea0',
-    fontSize: 12,
-    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
-    flex: 1,
-  },
-  chevron: { color: '#6b7280', fontSize: 10, marginLeft: 8 },
-  body: {
-    paddingHorizontal: 12,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#1a1a1a',
-  },
-  code: {
-    color: '#b8bfca',
-    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
-    fontSize: 11,
-    lineHeight: 17,
-    paddingTop: 8,
-  },
-  divider: { height: 1, backgroundColor: '#1a1a1a', marginVertical: 8 },
-  result: {
-    color: '#fb923c',
-    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
-    fontSize: 11,
-    lineHeight: 17,
-  },
-});
-
-export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq, activeSessionId }: ChatViewProps) {
+export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq, activeSessionId, sessionRunning, onSendInput }: ChatViewProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [inputText, setInputText] = useState('');
 
   useEffect(() => { setShowHistory(false); }, [viewStartSeq]);
 
@@ -213,7 +133,7 @@ export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq, act
         } else if (block.type === 'tool_use') {
           const tb = block as ToolUseBlock;
           items.push(
-            <ToolCallRow
+            <PendingToolCallRow
               key={`tc-${tb.id}`}
               toolUseId={tb.id}
               name={tb.name}
@@ -231,49 +151,127 @@ export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq, act
   }
 
   const hasHistory = sessionEvents.some(f => f.seq <= viewStartSeq);
+  const hasPendingApprovals = pendingApprovals.length > 0;
+  const showInputBar = sessionRunning && !!activeSessionId && !!onSendInput;
+
+  const handleSendInput = () => {
+    const text = inputText.trim();
+    if (!text || !onSendInput) return;
+    onSendInput(text);
+    setInputText('');
+  };
+
+  const inputBar = showInputBar ? (
+    <View style={styles.inputBar}>
+      <TextInput
+        style={[styles.inputField, hasPendingApprovals && styles.inputFieldDisabled]}
+        value={inputText}
+        onChangeText={setInputText}
+        placeholder="Type a message…"
+        placeholderTextColor="#52525b"
+        autoCorrect={false}
+        editable={!hasPendingApprovals}
+        returnKeyType="send"
+        onSubmitEditing={handleSendInput}
+        blurOnSubmit={false}
+      />
+      <Pressable
+        style={[styles.sendBtn, (!inputText.trim() || hasPendingApprovals) && styles.sendBtnDisabled]}
+        onPress={handleSendInput}
+        disabled={!inputText.trim() || hasPendingApprovals}
+      >
+        <Text style={styles.sendBtnText}>Send</Text>
+      </Pressable>
+    </View>
+  ) : null;
 
   if (items.length === 0 && !hasHistory) {
     return (
-      <View style={styles.empty}>
-        <Text style={styles.emptyText}>No conversation yet</Text>
+      <View style={styles.emptyWrapper}>
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>No conversation yet</Text>
+        </View>
+        {inputBar}
       </View>
     );
   }
 
   if (items.length === 0 && hasHistory) {
     return (
-      <View style={styles.empty}>
-        <Pressable onPress={() => setShowHistory(true)} style={styles.historyToggle}>
-          <Text style={styles.historyToggleText}>▼ Show history</Text>
-        </Pressable>
+      <View style={styles.emptyWrapper}>
+        <View style={styles.empty}>
+          <Pressable onPress={() => setShowHistory(true)} style={styles.historyToggle}>
+            <Text style={styles.historyToggleText}>▼ Show history</Text>
+          </Pressable>
+        </View>
+        {inputBar}
       </View>
     );
   }
 
   return (
-    <ScrollView
-      ref={scrollRef}
-      style={styles.scroll}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      {hasHistory && (
-        <Pressable onPress={() => setShowHistory(x => !x)} style={styles.historyToggle}>
-          <Text style={styles.historyToggleText}>
-            {showHistory ? '▲ Hide history' : '▼ Show history'}
-          </Text>
-        </Pressable>
-      )}
-      {items}
-    </ScrollView>
+    <View style={styles.chatWrapper}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {hasHistory && (
+          <Pressable onPress={() => setShowHistory(x => !x)} style={styles.historyToggle}>
+            <Text style={styles.historyToggleText}>
+              {showHistory ? '▲ Hide history' : '▼ Show history'}
+            </Text>
+          </Pressable>
+        )}
+        {items}
+      </ScrollView>
+      {inputBar}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  chatWrapper: { flex: 1 },
+  emptyWrapper: { flex: 1 },
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24, gap: 10 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { color: '#71717a', fontSize: 14 },
+  inputBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e1e',
+    backgroundColor: '#0a0a0a',
+  },
+  inputField: {
+    flex: 1,
+    backgroundColor: '#0d0d0d',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: '#f0f0f0',
+    fontSize: 14,
+  },
+  inputFieldDisabled: {
+    opacity: 0.4,
+  },
+  sendBtn: {
+    backgroundColor: '#1e3a5f',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: '#2d5a9e',
+  },
+  sendBtnDisabled: { opacity: 0.35 },
+  sendBtnText: { color: '#93c5fd', fontWeight: '700', fontSize: 13 },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',

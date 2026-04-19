@@ -1,5 +1,8 @@
 use std::io::{BufRead, BufReader};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
 use anyhow::{Context, Result};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -15,22 +18,28 @@ use tokio::sync::oneshot;
 const MAX_PAYLOAD: usize = 65_536; // 64 KiB
 const SKIP_PERMISSIONS_FLAG: &str = "--dangerously-skip-permissions";
 
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_and_process(
     prompt: &str,
     container: Option<&str>,
     dangerously_skip_permissions: bool,
     work_dir: Option<&str>,
+    command: Option<&str>,
     session_id: &str,
     kill_rx: oneshot::Receiver<()>,
     db: Arc<Mutex<Connection>>,
     _pending: PendingApprovals,
     events_tx: EventTx,
+    input_tokens: Arc<AtomicU64>,
+    output_tokens: Arc<AtomicU64>,
+    cache_read_tokens: Arc<AtomicU64>,
 ) -> Result<()> {
     if !dangerously_skip_permissions {
         write_hook_settings().context("failed to write hook settings")?;
     }
 
-    let claude_bin = std::env::var("CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+    let env_bin = std::env::var("CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+    let claude_bin = command.unwrap_or(&env_bin).to_string();
 
     // Open a PTY so Claude's isatty() returns true → interactive mode → PreToolUse hooks fire.
     // With --output-format stream-json, output is machine-readable JSON even in TTY mode.
@@ -168,7 +177,7 @@ pub async fn spawn_and_process(
         let _ = events_tx.send((seq, now, enriched));
 
         event_count += 1;
-        if event_count % 100 == 0 {
+        if event_count.is_multiple_of(100) {
             let db_ref = db.clone();
             tokio::task::spawn_blocking(move || {
                 let conn = db_ref.lock().unwrap();
@@ -184,6 +193,19 @@ pub async fn spawn_and_process(
                 .and_then(|t| t.as_str())
                 .unwrap_or("unknown");
             tracing::info!(seq, event_type, "event logged");
+
+            // Parse usage fields from assistant events and accumulate token counts.
+            if let Some(usage) = v.get("usage") {
+                if let Some(n) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                    input_tokens.fetch_add(n, Ordering::Relaxed);
+                }
+                if let Some(n) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                    output_tokens.fetch_add(n, Ordering::Relaxed);
+                }
+                if let Some(n) = usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
+                    cache_read_tokens.fetch_add(n, Ordering::Relaxed);
+                }
+            }
         }
     } // end inner block
     } // end loop

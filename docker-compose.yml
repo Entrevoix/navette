@@ -1,0 +1,31 @@
+# ntfy self-hosted server for clauded push notifications
+#
+# This docker-compose file runs a self-hosted ntfy server alongside clauded,
+# enabling push notifications without relying on ntfy.sh.
+#
+# Quick start:
+#   1. Start the services: docker compose up -d
+#   2. Configure clauded to use your ntfy instance:
+#      In your clauded config file, set:
+#      ntfy_base_url = "http://localhost:8080"
+#      (or replace localhost with your server's IP/hostname if running remotely)
+#   3. Subscribe to topics in the ntfy mobile/web app using your server URL
+#      Example: http://your-server:8080 (or http://localhost:8080 for local)
+
+version: '3.8'
+
+services:
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: ntfy
+    command: serve
+    ports:
+      - "8080:80"
+    volumes:
+      - ./ntfy-data:/var/lib/ntfy
+    restart: unless-stopped
+    environment:
+      # Optional: Configure ntfy behavior
+      # Uncomment to customize:
+      # - NTFY_LISTEN_HTTP=:80
+      # - NTFY_BASE_URL=http://localhost:8080

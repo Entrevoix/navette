@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  FlatList,
   Pressable,
   ScrollView,
   Share,
@@ -11,10 +12,11 @@ import {
 import { ChatView } from '../components/ChatView';
 import { DirPicker } from '../components/DirPicker';
 import { EventFeed } from '../components/EventFeed';
+import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DirListingEvent, EventFrame, PendingApproval, SessionInfo, SessionStatus } from '../types';
-import type { NotifyConfig } from '../hooks/useClaudedWS';
+import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, ScheduledSessionInfo, SessionInfo, SessionStatus } from '../types';
+import type { NotifyConfig, SkillInfo } from '../hooks/useClaudedWS';
 
 interface MainScreenProps {
   status: ConnectionStatus;
@@ -28,12 +30,27 @@ interface MainScreenProps {
   viewStartSeq: number;
   defaultContainer?: string;
   notifyConfig: NotifyConfig | null;
+  reconnecting: boolean;
+  reconnectCount: number;
   onDecide: (tool_use_id: string, allow: boolean) => void;
   onDisconnect: () => void;
-  onRun: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string) => void;
+  onRun: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string) => void;
   onKill: (sessionId?: string) => void;
+  onSendInput: (text: string) => void;
   onRequestNotifyConfig: () => void;
+  onSendTestNotification: () => void;
+  testNotificationResult: 'idle' | 'sent' | 'failed';
   listDir: (path: string, cb: (ev: DirListingEvent) => void) => void;
+  skills: SkillInfo[];
+  onListSkills: () => void;
+  pastSessions: PastSessionInfo[];
+  sessionHistory: Record<string, EventFrame[]>;
+  onListPastSessions: () => void;
+  onGetSessionHistory: (sessionId: string) => void;
+  scheduledSessions: ScheduledSessionInfo[];
+  onScheduleSession: (prompt: string, scheduledAt: number) => void;
+  onCancelScheduledSession: (id: string) => void;
+  onListScheduledSessions: () => void;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -63,25 +80,49 @@ export function MainScreen({
   viewStartSeq,
   defaultContainer,
   notifyConfig,
+  reconnecting,
+  reconnectCount,
   onDecide,
   onDisconnect,
   onRun,
   onKill,
+  onSendInput,
   onRequestNotifyConfig,
+  onSendTestNotification,
+  testNotificationResult,
   listDir,
+  skills,
+  onListSkills,
+  pastSessions,
+  sessionHistory,
+  onListPastSessions,
+  onGetSessionHistory,
+  scheduledSessions,
+  onScheduleSession,
+  onCancelScheduledSession,
+  onListScheduledSessions,
 }: MainScreenProps) {
+  const AGENTS = ['claude', 'codex', 'gemini', 'aider'] as const;
+  type AgentName = typeof AGENTS[number];
+
   const [prompt, setPrompt] = useState('');
   const [isVoiceInterim, setIsVoiceInterim] = useState(false);
   const [container, setContainer] = useState(defaultContainer ?? '');
   const [workDir, setWorkDir] = useState('');
+  const [customCommand, setCustomCommand] = useState('');
+  const [selectedAgent, setSelectedAgent] = useState<AgentName>('claude');
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
   const [skipPermsConfirming, setSkipPermsConfirming] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [logExpanded, setLogExpanded] = useState(false);
+  const [reconnectedFlash, setReconnectedFlash] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevReconnectingRef = useRef(false);
 
   useEffect(() => {
     if (sessionStatus === 'running') {
@@ -101,6 +142,19 @@ export function MainScreen({
       }
     }
   }, [sessionStatus]);
+
+  // Flash "Reconnected" briefly when reconnecting transitions from true→false (i.e. just reconnected)
+  useEffect(() => {
+    if (prevReconnectingRef.current && !reconnecting && status === 'connected' && reconnectCount > 0) {
+      setReconnectedFlash(true);
+      if (reconnectedFlashTimerRef.current !== null) clearTimeout(reconnectedFlashTimerRef.current);
+      reconnectedFlashTimerRef.current = setTimeout(() => {
+        setReconnectedFlash(false);
+        reconnectedFlashTimerRef.current = null;
+      }, 2000);
+    }
+    prevReconnectingRef.current = reconnecting;
+  }, [reconnecting, status, reconnectCount]);
 
   const handleSkipPermsToggle = () => {
     if (dangerouslySkipPermissions) {
@@ -134,7 +188,8 @@ export function MainScreen({
   const handleRun = () => {
     const p = prompt.trim();
     if (!p) return;
-    onRun(p, container.trim() || undefined, dangerouslySkipPermissions, workDir.trim() || undefined);
+    const agentCommand = customCommand.trim() || (selectedAgent !== 'claude' ? selectedAgent : undefined);
+    onRun(p, container.trim() || undefined, dangerouslySkipPermissions, workDir.trim() || undefined, agentCommand);
     setPrompt('');
     setIsVoiceInterim(false);
   };
@@ -154,6 +209,19 @@ export function MainScreen({
         onClose={() => setSettingsVisible(false)}
         notifyConfig={notifyConfig}
         onRequestNotifyConfig={onRequestNotifyConfig}
+        onSendTestNotification={onSendTestNotification}
+        testNotificationResult={testNotificationResult}
+        skills={skills}
+        onListSkills={onListSkills}
+        onRunSkill={(prompt) => { onRun(prompt); setSettingsVisible(false); }}
+        pastSessions={pastSessions}
+        sessionHistory={sessionHistory}
+        onListPastSessions={onListPastSessions}
+        onGetSessionHistory={onGetSessionHistory}
+        scheduledSessions={scheduledSessions}
+        onScheduleSession={onScheduleSession}
+        onCancelScheduledSession={onCancelScheduledSession}
+        onListScheduledSessions={onListScheduledSessions}
       />
 
       {/* Top bar */}
@@ -162,6 +230,17 @@ export function MainScreen({
           <View style={[styles.dot, { backgroundColor: STATUS_COLOR[status] }]} />
           <Text style={styles.statusText}>{status}</Text>
           {lastSeq > 0 && <Text style={styles.seqBadge}>seq {lastSeq}</Text>}
+          {reconnecting && (
+            <View style={styles.reconnectBadge}>
+              <View style={styles.reconnectDot} />
+              <Text style={styles.reconnectText}>Reconnecting…</Text>
+            </View>
+          )}
+          {reconnectedFlash && !reconnecting && (
+            <View style={styles.reconnectedBadge}>
+              <Text style={styles.reconnectedText}>Reconnected</Text>
+            </View>
+          )}
           {isRunning && (
             <View style={styles.sessionBadge}>
               <Text style={styles.sessionBadgeText}>running · {formatElapsed(elapsed)}</Text>
@@ -184,8 +263,27 @@ export function MainScreen({
         </View>
       </View>
 
-      {/* Session pill switcher */}
-      {sessions.length > 0 && (
+      {/* Session dashboard (multiple sessions) or pill switcher (single session) */}
+      {sessions.length > 1 && (
+        <View style={styles.dashboardRow}>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={sessions}
+            keyExtractor={s => s.session_id}
+            contentContainerStyle={styles.dashboardContent}
+            renderItem={({ item: s }) => (
+              <SessionCard
+                session={s}
+                isActive={s.session_id === activeSessionId}
+                onSelect={onSetActiveSessionId}
+                hasPendingApproval={s.session_id === activeSessionId && pendingApprovals.length > 0}
+              />
+            )}
+          />
+        </View>
+      )}
+      {sessions.length === 1 && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -216,6 +314,8 @@ export function MainScreen({
         onDecide={onDecide}
         viewStartSeq={viewStartSeq}
         activeSessionId={activeSessionId}
+        sessionRunning={isRunning}
+        onSendInput={isRunning && activeSessionId ? onSendInput : undefined}
       />
 
       {/* New session input (only when idle) */}
@@ -253,39 +353,79 @@ export function MainScreen({
             </Pressable>
           </View>
 
-          <Pressable onPress={() => setDirPickerOpen(true)} style={styles.dirBtn}>
-            <Text style={styles.dirBtnText} numberOfLines={1}>
-              {workDir || '📁 Choose project directory'}
-            </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.agentRow} contentContainerStyle={styles.agentRowContent}>
+            {AGENTS.map(a => (
+              <Pressable
+                key={a}
+                style={[styles.agentPill, selectedAgent === a && styles.agentPillActive]}
+                onPress={() => setSelectedAgent(a)}
+              >
+                <Text style={[styles.agentPillText, selectedAgent === a && styles.agentPillTextActive]}>{a}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {/* Advanced options — collapsed by default */}
+          <Pressable style={styles.advancedHeader} onPress={() => setAdvancedOpen(o => !o)}>
+            <Text style={styles.advancedHeaderText}>Advanced {advancedOpen ? '▴' : '▾'}</Text>
           </Pressable>
+
+          {advancedOpen && (
+            <View style={styles.advancedBody}>
+              {/* Work directory */}
+              <Pressable onPress={() => setDirPickerOpen(true)} style={styles.dirBtn}>
+                <Text style={styles.dirBtnText} numberOfLines={1}>
+                  {workDir || '📁 Work directory (optional)'}
+                </Text>
+              </Pressable>
+
+              {/* Custom command override */}
+              <TextInput
+                style={[styles.input, styles.advancedInput]}
+                value={customCommand}
+                onChangeText={setCustomCommand}
+                placeholder="Custom command (overrides agent picker)"
+                placeholderTextColor="#6b7280"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              {/* Skip permissions toggle */}
+              <Pressable
+                style={[
+                  styles.skipPermsToggle,
+                  skipPermsConfirming && styles.skipPermsToggleConfirming,
+                  dangerouslySkipPermissions && styles.skipPermsToggleOn,
+                ]}
+                onPress={handleSkipPermsToggle}
+              >
+                <View style={[styles.skipPermsIndicator, dangerouslySkipPermissions && styles.skipPermsIndicatorOn]} />
+                <View style={styles.skipPermsLabelCol}>
+                  <Text style={[
+                    styles.skipPermsText,
+                    skipPermsConfirming && styles.skipPermsTextConfirming,
+                    dangerouslySkipPermissions && styles.skipPermsTextOn,
+                  ]}>
+                    {dangerouslySkipPermissions
+                      ? '⚡ dangerously-skip-permissions ON'
+                      : skipPermsConfirming
+                      ? '⚠ Tap again to enable'
+                      : 'Dangerous: skip all approvals'}
+                  </Text>
+                  {dangerouslySkipPermissions && (
+                    <Text style={styles.skipPermsWarning}>Auto-approves every tool use</Text>
+                  )}
+                </View>
+              </Pressable>
+            </View>
+          )}
+
           <DirPicker
             visible={dirPickerOpen}
             onClose={() => setDirPickerOpen(false)}
             onSelect={setWorkDir}
             listDir={listDir}
           />
-
-          <Pressable
-            style={[
-              styles.skipPermsToggle,
-              skipPermsConfirming && styles.skipPermsToggleConfirming,
-              dangerouslySkipPermissions && styles.skipPermsToggleOn,
-            ]}
-            onPress={handleSkipPermsToggle}
-          >
-            <View style={[styles.skipPermsIndicator, dangerouslySkipPermissions && styles.skipPermsIndicatorOn]} />
-            <Text style={[
-              styles.skipPermsText,
-              skipPermsConfirming && styles.skipPermsTextConfirming,
-              dangerouslySkipPermissions && styles.skipPermsTextOn,
-            ]}>
-              {dangerouslySkipPermissions
-                ? '⚡ dangerously-skip-permissions ON'
-                : skipPermsConfirming
-                ? '⚠ Tap again to enable'
-                : 'dangerously-skip-permissions off'}
-            </Text>
-          </Pressable>
         </View>
       )}
 
@@ -347,6 +487,28 @@ const styles = StyleSheet.create({
     borderColor: '#1f4a18',
   },
   sessionBadgeText: { color: '#4ade80', fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
+  reconnectBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#1c1500',
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#3a2e00',
+  },
+  reconnectDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fbbf24' },
+  reconnectText: { color: '#fbbf24', fontSize: 11, fontWeight: '600' },
+  reconnectedBadge: {
+    backgroundColor: '#0f2818',
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#1f4a18',
+  },
+  reconnectedText: { color: '#4ade80', fontSize: 11, fontWeight: '600' },
   topBarActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -401,6 +563,12 @@ const styles = StyleSheet.create({
   runBtn: { backgroundColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
   runBtnDisabled: { opacity: 0.35 },
   runBtnText: { color: '#0a0a0a', fontWeight: '700', fontSize: 14 },
+  agentRow: { flexGrow: 0 },
+  agentRowContent: { flexDirection: 'row', gap: 6, paddingVertical: 4 },
+  agentPill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0d0d0d' },
+  agentPillActive: { borderColor: '#818cf8', backgroundColor: '#1e1b4b' },
+  agentPillText: { color: '#71717a', fontSize: 12, fontWeight: '500' },
+  agentPillTextActive: { color: '#a5b4fc', fontWeight: '700' },
   dirBtn: {
     borderRadius: 8,
     borderWidth: 1,
@@ -427,6 +595,34 @@ const styles = StyleSheet.create({
   skipPermsTextOn: { color: '#f87171', fontWeight: '700' },
   skipPermsToggleConfirming: { borderColor: '#78350f', backgroundColor: '#1c110a' },
   skipPermsTextConfirming: { color: '#fbbf24', fontWeight: '600' },
+  skipPermsLabelCol: { flex: 1 },
+  skipPermsWarning: { color: '#ef4444', fontSize: 10, marginTop: 2 },
+
+  advancedHeader: {
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+  },
+  advancedHeaderText: {
+    color: '#52525b',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  advancedBody: {
+    gap: 8,
+  },
+  advancedInput: {
+    fontSize: 13,
+  },
+
+  dashboardRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+    paddingVertical: 10,
+  },
+  dashboardContent: {
+    paddingHorizontal: 12,
+  },
 
   pillsRow: {
     borderBottomWidth: 1,

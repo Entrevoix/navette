@@ -5,11 +5,18 @@ mod hook;
 mod notify;
 mod ws;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use anyhow::Result;
 use rusqlite::Connection;
 use tokio::sync::{broadcast, oneshot, Mutex};
+use tokio::time::Duration;
 
 /// Shared map: tool_use_id → oneshot sender waiting for a user decision.
 pub type PendingApprovals = Arc<Mutex<HashMap<String, oneshot::Sender<Decision>>>>;
@@ -30,9 +37,14 @@ pub enum Decision {
 pub struct SessionEntry {
     pub prompt: String,
     pub container: Option<String>,
+    pub command: Option<String>,
     pub started_at: f64,
     /// Fires to kill the session; taken by the kill handler.
     pub kill_tx: Option<oneshot::Sender<()>>,
+    /// Cumulative token counts updated atomically as events stream in.
+    pub input_tokens: Arc<AtomicU64>,
+    pub output_tokens: Arc<AtomicU64>,
+    pub cache_read_tokens: Arc<AtomicU64>,
 }
 
 /// Sent from a WS client to start a claude session.
@@ -41,6 +53,7 @@ pub struct RunRequest {
     pub container: Option<String>,
     pub dangerously_skip_permissions: bool,
     pub work_dir: Option<String>,
+    pub command: Option<String>,
 }
 
 #[tokio::main]
@@ -79,22 +92,124 @@ async fn main() -> Result<()> {
                         "approval_pending" => {
                             let tool = v["tool_name"].as_str().unwrap_or("tool");
                             let _ = notify.publish("Claude needs approval", tool, "default", &["warning"]).await;
+                            let _ = notify.send_telegram(&format!("⚠️ Claude needs approval: {tool}")).await;
                         }
                         "approval_warning" => {
                             let secs = v["seconds_remaining"].as_u64().unwrap_or(30);
                             let body = format!("Expires in {secs}s");
                             let _ = notify.publish("Approval expiring", &body, "high", &["stopwatch"]).await;
+                            let _ = notify.send_telegram(&format!("⏱️ Approval expiring in {secs}s")).await;
                         }
                         "approval_expired" => {
                             let _ = notify.publish("Auto-denied", "Approval timed out", "default", &[]).await;
+                            let _ = notify.send_telegram("❌ Approval timed out and was auto-denied").await;
                         }
                         "session_ended" => {
                             let ok = v["ok"].as_bool().unwrap_or(false);
-                            let (title, tag) = if ok { ("Session done", "white_check_mark") } else { ("Session failed", "x") };
+                            let (title, tag, emoji) = if ok {
+                                ("Session done", "white_check_mark", "✓")
+                            } else {
+                                ("Session failed", "x", "✗")
+                            };
                             let _ = notify.publish(title, "", "low", &[tag]).await;
+                            let _ = notify.send_telegram(&format!("{emoji} Session {title}")).await;
                         }
                         _ => {}
                     }
+                }
+            }
+        });
+    }
+
+    // Scheduler: poll every 30 s and fire sessions whose time has arrived.
+    {
+        let scheduler_db = db.clone();
+        let scheduler_sessions = sessions.clone();
+        let scheduler_events_tx = events_tx.clone();
+        let scheduler_pending = pending.clone();
+        let scheduler_cfg = cfg.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                let now = unix_ts();
+                let pending_jobs = {
+                    let conn = scheduler_db.lock().unwrap();
+                    db::get_pending_scheduled_sessions(&conn).unwrap_or_default()
+                };
+                for job in pending_jobs {
+                    let scheduled_at = job["scheduled_at"].as_f64().unwrap_or(0.0);
+                    if scheduled_at > now {
+                        continue;
+                    }
+                    let id = job["id"].as_str().unwrap_or("").to_string();
+                    let prompt = job["prompt"].as_str().unwrap_or("").to_string();
+                    let container = job["container"].as_str().map(|s| s.to_string());
+                    let command = job["command"].as_str().map(|s| s.to_string());
+
+                    // Mark fired before spawning so a crash doesn't re-fire.
+                    {
+                        let conn = scheduler_db.lock().unwrap();
+                        let _ = db::mark_scheduled_session_fired(&conn, &id);
+                    }
+
+                    // Enforce concurrency limit.
+                    let session_count = scheduler_sessions.lock().await.len();
+                    if session_count >= scheduler_cfg.max_concurrent_sessions {
+                        tracing::warn!(scheduled_id = %id, "scheduler: max concurrent sessions reached, skipping job");
+                        continue;
+                    }
+
+                    // Emit a notification event.
+                    let fired_json = serde_json::to_string(&serde_json::json!({
+                        "type": "scheduled_session_fired",
+                        "scheduled_id": id,
+                        "prompt": prompt,
+                    }))
+                    .unwrap_or_default();
+                    let _ = scheduler_events_tx.send((0, now, fired_json));
+
+                    // Spawn the session.
+                    let session_id = {
+                        use rand::Rng;
+                        rand::thread_rng()
+                            .sample_iter(&rand::distributions::Alphanumeric)
+                            .take(16)
+                            .map(char::from)
+                            .collect::<String>()
+                    };
+                    let (kill_tx, kill_rx) = oneshot::channel::<()>();
+                    scheduler_sessions.lock().await.insert(
+                        session_id.clone(),
+                        SessionEntry {
+                            prompt: prompt.clone(),
+                            container: container.clone(),
+                            command: command.clone(),
+                            started_at: now,
+                            kill_tx: Some(kill_tx),
+                            input_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                            output_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                            cache_read_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                        },
+                    );
+                    emit_session_list_changed(&scheduler_sessions, &scheduler_events_tx).await;
+
+                    let req = RunRequest {
+                        prompt,
+                        container,
+                        dangerously_skip_permissions: false,
+                        work_dir: None,
+                        command,
+                    };
+                    tracing::info!(scheduled_id = %id, %session_id, "scheduler: firing session");
+                    tokio::spawn(run_session(
+                        session_id,
+                        req,
+                        scheduler_sessions.clone(),
+                        scheduler_db.clone(),
+                        scheduler_pending.clone(),
+                        scheduler_events_tx.clone(),
+                        kill_rx,
+                    ));
                 }
             }
         });
@@ -140,6 +255,7 @@ pub async fn run_session(
         "prompt": &req.prompt,
         "container": req.container,
         "dangerously_skip_permissions": req.dangerously_skip_permissions,
+        "command": req.command,
     }))
     .unwrap_or_default();
     let seq = {
@@ -148,16 +264,33 @@ pub async fn run_session(
     };
     let _ = events_tx.send((seq, ts, started_json));
 
+    // Retrieve the token counters that were inserted into the sessions map by the WS handler.
+    let (input_tokens, output_tokens, cache_read_tokens) = {
+        let map = sessions.lock().await;
+        match map.get(&session_id) {
+            Some(e) => (e.input_tokens.clone(), e.output_tokens.clone(), e.cache_read_tokens.clone()),
+            None => (
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(AtomicU64::new(0)),
+            ),
+        }
+    };
+
     let result = claude::spawn_and_process(
         &req.prompt,
         req.container.as_deref(),
         req.dangerously_skip_permissions,
         req.work_dir.as_deref(),
+        req.command.as_deref(),
         &session_id,
         kill_rx,
         db.clone(),
         pending,
         events_tx.clone(),
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
     )
     .await;
 
@@ -206,7 +339,11 @@ pub async fn sessions_snapshot(sessions: &Sessions) -> Vec<serde_json::Value> {
                 "session_id": id,
                 "prompt": e.prompt,
                 "container": e.container,
+                "command": e.command,
                 "started_at": e.started_at,
+                "input_tokens": e.input_tokens.load(Ordering::Relaxed),
+                "output_tokens": e.output_tokens.load(Ordering::Relaxed),
+                "cache_read_tokens": e.cache_read_tokens.load(Ordering::Relaxed),
             })
         })
         .collect()

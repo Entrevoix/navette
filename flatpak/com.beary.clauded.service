@@ -1,0 +1,11 @@
+[Unit]
+Description=clauded - Remote Claude Code daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/flatpak run com.beary.clauded
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

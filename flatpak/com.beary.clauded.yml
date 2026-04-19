@@ -1,0 +1,37 @@
+app-id: com.beary.clauded
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: clauded
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --filesystem=home
+  - --env=RUST_LOG=info
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/clauded/.cargo-home
+modules:
+  - name: clauded
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/clauded/.cargo-home
+        RUST_BACKTRACE: '1'
+    build-commands:
+      - mkdir -p .cargo-home
+      - |
+        printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "vendor/"\n' > .cargo-home/config.toml
+      - cargo build --release --offline --frozen
+      - install -Dm755 target/release/clauded /app/bin/clauded
+      - install -Dm755 target/release/clauded-hook /app/bin/clauded-hook
+      - install -Dm644 flatpak/com.beary.clauded.metainfo.xml /app/share/metainfo/com.beary.clauded.metainfo.xml
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - target/
+          - .git/
