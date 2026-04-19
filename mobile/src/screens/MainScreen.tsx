@@ -15,7 +15,7 @@ import { EventFeed } from '../components/EventFeed';
 import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DirListingEvent, EventFrame, PendingApproval, SessionInfo, SessionStatus } from '../types';
+import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useClaudedWS';
 
 interface MainScreenProps {
@@ -38,6 +38,10 @@ interface MainScreenProps {
   listDir: (path: string, cb: (ev: DirListingEvent) => void) => void;
   skills: SkillInfo[];
   onListSkills: () => void;
+  pastSessions: PastSessionInfo[];
+  sessionHistory: Record<string, EventFrame[]>;
+  onListPastSessions: () => void;
+  onGetSessionHistory: (sessionId: string) => void;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -75,6 +79,10 @@ export function MainScreen({
   listDir,
   skills,
   onListSkills,
+  pastSessions,
+  sessionHistory,
+  onListPastSessions,
+  onGetSessionHistory,
 }: MainScreenProps) {
   const AGENTS = ['claude', 'codex', 'gemini', 'aider'] as const;
   type AgentName = typeof AGENTS[number];
@@ -167,6 +175,10 @@ export function MainScreen({
         onRequestNotifyConfig={onRequestNotifyConfig}
         skills={skills}
         onListSkills={onListSkills}
+        pastSessions={pastSessions}
+        sessionHistory={sessionHistory}
+        onListPastSessions={onListPastSessions}
+        onGetSessionHistory={onGetSessionHistory}
       />
 
       {/* Top bar */}

@@ -12,8 +12,10 @@ import {
 } from 'react-native';
 
 import { DEFAULT_WHISPER_ENDPOINT, STT_ENGINE_KEY, WHISPER_API_KEY_STORAGE, WHISPER_ENDPOINT_KEY } from '../components/VoiceButton';
+import { SessionHistoryScreen } from './SessionHistoryScreen';
 import { SkillsScreen } from './SkillsScreen';
 import type { SkillInfo } from '../hooks/useClaudedWS';
+import type { EventFrame, PastSessionInfo } from '../types';
 
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
 
@@ -29,9 +31,13 @@ interface SettingsScreenProps {
   onRequestNotifyConfig: () => void;
   skills: SkillInfo[];
   onListSkills: () => void;
+  pastSessions: PastSessionInfo[];
+  sessionHistory: Record<string, EventFrame[]>;
+  onListPastSessions: () => void;
+  onGetSessionHistory: (sessionId: string) => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, skills, onListSkills }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, skills, onListSkills, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [tsApiKey, setTsApiKey] = useState('');
   const [tsKeySaved, setTsKeySaved] = useState(false);
@@ -40,6 +46,7 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
   const [whisperEndpoint, setWhisperEndpoint] = useState('');
   const [whisperSaved, setWhisperSaved] = useState(false);
   const [skillsVisible, setSkillsVisible] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -92,6 +99,14 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SessionHistoryScreen
+        visible={historyVisible}
+        onClose={() => setHistoryVisible(false)}
+        pastSessions={pastSessions}
+        sessionHistory={sessionHistory}
+        onListPastSessions={onListPastSessions}
+        onGetSessionHistory={onGetSessionHistory}
+      />
       <SkillsScreen
         visible={skillsVisible}
         onClose={() => setSkillsVisible(false)}
@@ -169,6 +184,16 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
             </Pressable>
           </View>
         </View>
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Session History</Text>
+          <Text style={styles.sectionSubtitle}>
+            Browse and replay completed past sessions stored on the server.
+          </Text>
+          <Pressable style={styles.historyBtn} onPress={() => setHistoryVisible(true)}>
+            <Text style={styles.historyBtnText}>View Session History →</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Skills</Text>
           <Text style={styles.sectionSubtitle}>
@@ -359,6 +384,20 @@ const styles = StyleSheet.create({
     opacity: 0.35,
   },
   subscribeBtnText: {
+    color: '#93c5fd',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  historyBtn: {
+    backgroundColor: '#0d1a2e',
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    marginTop: 4,
+  },
+  historyBtnText: {
     color: '#93c5fd',
     fontSize: 15,
     fontWeight: '700',

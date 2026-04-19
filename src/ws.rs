@@ -341,6 +341,38 @@ async fn handle_ws(
                                         break;
                                     }
                                 }
+                            } else if msg_type == "list_past_sessions" {
+                                let db2 = db.clone();
+                                let sessions_data = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::get_session_list(&conn)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let reply = serde_json::to_string(
+                                    &serde_json::json!({"type": "past_sessions_list", "sessions": sessions_data})
+                                ).unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "get_session_history" {
+                                let session_id = v.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let db2 = db.clone();
+                                let events_data = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::get_session_events(&conn, &session_id)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let sid = v.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+                                let reply = serde_json::to_string(
+                                    &serde_json::json!({"type": "session_history", "session_id": sid, "events": events_data})
+                                ).unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
                             } else if msg_type == "list_dir" {
                                 let raw_path = v.get("path").and_then(|p| p.as_str()).unwrap_or("~");
                                 let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());

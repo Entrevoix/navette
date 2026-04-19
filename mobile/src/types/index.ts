@@ -102,3 +102,10 @@ export interface DirListingEvent {
   entries: DirEntry[];
   error?: string;
 }
+
+export interface PastSessionInfo {
+  session_id: string;
+  event_count: number;
+  started_at: number;
+  last_event: number;
+}

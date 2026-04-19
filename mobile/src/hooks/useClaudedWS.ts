@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo } from '../types';
 
 const LAST_SEQ_KEY = 'clauded_last_seq';
 
@@ -28,6 +28,8 @@ interface UseClaudedWSResult {
   viewStartSeq: number;
   notifyConfig: NotifyConfig | null;
   skills: SkillInfo[];
+  pastSessions: PastSessionInfo[];
+  sessionHistory: Record<string, EventFrame[]>;
   connect: (config: ServerConfig) => void;
   disconnect: () => void;
   decide: (tool_use_id: string, allow: boolean) => void;
@@ -37,6 +39,8 @@ interface UseClaudedWSResult {
   getTokenUsage: (sessionId: string) => void;
   listDir: (path: string, cb: (ev: DirListingEvent) => void) => void;
   listSkills: () => void;
+  listPastSessions: () => void;
+  getSessionHistory: (sessionId: string) => void;
 }
 
 export function useClaudedWS(): UseClaudedWSResult {
@@ -49,6 +53,8 @@ export function useClaudedWS(): UseClaudedWSResult {
   const [viewStartSeq, setViewStartSeq] = useState(0);
   const [notifyConfig, setNotifyConfig] = useState<NotifyConfig | null>(null);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [pastSessions, setPastSessions] = useState<PastSessionInfo[]>([]);
+  const [sessionHistory, setSessionHistory] = useState<Record<string, EventFrame[]>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
   const lastSeqRef = useRef(0);
@@ -121,6 +127,18 @@ export function useClaudedWS(): UseClaudedWSResult {
   const listSkills = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'list_skills' }));
+    }
+  }, []);
+
+  const listPastSessions = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_past_sessions' }));
+    }
+  }, []);
+
+  const getSessionHistory = useCallback((sessionId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'get_session_history', session_id: sessionId }));
     }
   }, []);
 
@@ -309,6 +327,20 @@ export function useClaudedWS(): UseClaudedWSResult {
         return;
       }
 
+      if (msgType === 'past_sessions_list') {
+        setPastSessions((msg['sessions'] as PastSessionInfo[] | undefined) ?? []);
+        return;
+      }
+
+      if (msgType === 'session_history') {
+        const sid = msg['session_id'] as string | undefined;
+        const evs = (msg['events'] as EventFrame[] | undefined) ?? [];
+        if (sid) {
+          setSessionHistory(prev => ({ ...prev, [sid]: evs }));
+        }
+        return;
+      }
+
       if (msgType === 'token_usage') {
         const sid = msg['session_id'] as string | undefined;
         if (sid) {
@@ -367,6 +399,8 @@ export function useClaudedWS(): UseClaudedWSResult {
     viewStartSeq,
     notifyConfig,
     skills,
+    pastSessions,
+    sessionHistory,
     connect,
     disconnect,
     decide,
@@ -376,5 +410,7 @@ export function useClaudedWS(): UseClaudedWSResult {
     getTokenUsage,
     listDir,
     listSkills,
+    listPastSessions,
+    getSessionHistory,
   };
 }
