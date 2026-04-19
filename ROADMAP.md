@@ -124,15 +124,15 @@ Features the daemon supports that mobile does not yet expose:
 | Scheduled / cron sessions | ~~P2~~ **shipped** | ScheduleScreen with quick buttons; 30s daemon polling loop |
 | Session recording + replay | ~~P2~~ **shipped** | SessionHistoryScreen reads past events from SQLite |
 | Installed skills browser | ~~P2~~ **shipped** | SkillsScreen lists ~/.claude/skills/ with descriptions |
-| Mid-session text input | P1 | Wire the daemon `input` handler to a mobile text field; needed for prompt steering without full stop/restart |
-| Skill launcher | P2 | Add "Run" action to SkillsScreen rows; sends `run` with `/skill-name` as prompt |
-| Session start advanced options | P2 | Collapsible panel: work_dir picker (reuse DirPicker), custom command field, dangerously_skip toggle |
-| Session history diff + tool detail | P2 | Render DiffView and tool-use blocks inside SessionHistoryScreen replay |
-| approval_warning UI | P2 | Handle `approval_warning` event in useClaudedWS; flash ApprovalCard border or badge when ≤30s remaining |
-| ntfy in-app onboarding | P3 | Test-notification button + subscribe deep-link flow in SettingsScreen |
-| Telegram notification channel | P3 | ntfy.sh covers the use case; Telegram would broaden reach |
-| Voice input (Whisper on-device) | P3 | Moshi has this; reduces friction for mobile prompt authoring |
-| Android `.aab` release build + signing | P3 | Current APK is debug-signed; need Play Store-ready build |
+| Mid-session text input | ~~P1~~ **shipped** | ChatView input bar; sendInput() in useClaudedWS |
+| Skill launcher | ~~P2~~ **shipped** | SkillsScreen per-row Run button fires /skill-name |
+| Session start advanced options | ~~P2~~ **shipped** | Collapsible Advanced panel: work_dir picker, custom command, dangerously_skip toggle |
+| Session history diff + tool detail | ~~P2~~ **shipped** | EventLog component shared with ChatView; full DiffView + tool-use blocks in replay |
+| approval_warning UI | ~~P2~~ **shipped** | useClaudedWS marks approval urgent; ApprovalCard pulses orange border ≤30s |
+| ntfy in-app onboarding | ~~P3~~ **shipped** | Notifications section: topic display + ntfy:// deep-link + send-test button |
+| Telegram notification channel | ~~P3~~ **shipped** | NotifyClient::send_telegram via Bot API; broadcasts approval/expiry/session events |
+| Voice input (Whisper on-device) | P3 | Reduces friction for mobile prompt authoring; multi-day spike, deferred |
+| Android `.aab` release build + signing | P3 | Current APK is debug-signed; needs keystore + Play Store account |
 | iOS App Store submission | P3 | Requires Apple Developer account and TestFlight distribution |
 
 ---
