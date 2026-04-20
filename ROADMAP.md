@@ -133,6 +133,7 @@ Features the daemon supports that mobile does not yet expose:
 | Telegram notification channel | ~~P3~~ **shipped** | NotifyClient::send_telegram via Bot API; broadcasts approval/expiry/session events |
 | Voice input (Whisper on-device) | P3 | Reduces friction for mobile prompt authoring; multi-day spike, deferred |
 | Android `.aab` release build + signing | P3 | Current APK is debug-signed; needs keystore + Play Store account |
+| Upgrade to Expo 54 / RN 0.81.5+ | P2 | Permanent fix for Android 16 (Sept 2025 patch) permission-hang regression — currently patched via JS check-first workaround in VoiceButton.tsx (facebook/react-native#53898 lands in 0.81.5). Also clears 16KB page-size + ErrorUtils tech debt. |
 | iOS App Store submission | P3 | Requires Apple Developer account and TestFlight distribution |
 
 ---

@@ -8,7 +8,7 @@ import {
   type ExpoSpeechRecognitionResultEvent,
 } from 'expo-speech-recognition';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Linking, Modal, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 // Tap-to-toggle max recording — Soda starts to misbehave past a few minutes; cap to 3.
 const MAX_RECORDING_MS = 3 * 60 * 1000;
@@ -788,23 +788,20 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   };
 
   // ── Permission helper ───────────────────────────────────────────────────
-  // expo-speech-recognition's requestPermissionsAsync hangs forever on
-  // Android 16; use RN core PermissionsAndroid for the on-device path.
+  // Android 16 (Sept 2025 security patch) regression: any *request* permissions
+  // call hangs forever when permission is already granted, because
+  // ReactActivityDelegate.onRequestPermissionsResult only fires on RESUMED and
+  // the system fast-paths the result before the activity transitions. Read-only
+  // checks still work, so check first and only prompt if actually needed.
+  // See: github.com/facebook/react-native/pull/53898 (fixed in RN 0.81.5+)
+  //      github.com/jamsch/expo-speech-recognition/issues/117
   const requestRecordAudio = useCallback(async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') {
-      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      return granted;
-    }
     try {
-      const result = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        {
-          title: 'Microphone',
-          message: 'Relay needs the microphone to transcribe your voice.',
-          buttonPositive: 'OK',
-        },
-      );
-      return result === PermissionsAndroid.RESULTS.GRANTED;
+      const current = await ExpoSpeechRecognitionModule.getPermissionsAsync();
+      if (current.granted) return true;
+      if (!current.canAskAgain) return false;
+      const next = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      return next.granted;
     } catch {
       return false;
     }
