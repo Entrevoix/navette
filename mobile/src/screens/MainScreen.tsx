@@ -18,7 +18,7 @@ import { EventFeed } from '../components/EventFeed';
 import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, ScheduledSessionInfo, SessionInfo, SessionStatus } from '../types';
+import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, SavedPrompt, ScheduledSessionInfo, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useNavettedWS';
 
 interface MainScreenProps {
@@ -54,6 +54,11 @@ interface MainScreenProps {
   onScheduleSession: (prompt: string, scheduledAt: number) => void;
   onCancelScheduledSession: (id: string) => void;
   onListScheduledSessions: () => void;
+  savedPrompts: SavedPrompt[];
+  onListPrompts: () => void;
+  onSavePrompt: (title: string, body: string, tags?: string[]) => void;
+  onUpdatePrompt: (id: string, title: string, body: string, tags?: string[]) => void;
+  onDeletePrompt: (id: string) => void;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -104,6 +109,11 @@ export function MainScreen({
   onScheduleSession,
   onCancelScheduledSession,
   onListScheduledSessions,
+  savedPrompts,
+  onListPrompts,
+  onSavePrompt,
+  onUpdatePrompt,
+  onDeletePrompt,
 }: MainScreenProps) {
   const AGENTS = ['claude', 'codex', 'gemini', 'aider'] as const;
   type AgentName = typeof AGENTS[number];
@@ -235,6 +245,12 @@ export function MainScreen({
         onScheduleSession={onScheduleSession}
         onCancelScheduledSession={onCancelScheduledSession}
         onListScheduledSessions={onListScheduledSessions}
+        savedPrompts={savedPrompts}
+        onListPrompts={onListPrompts}
+        onSavePrompt={onSavePrompt}
+        onUpdatePrompt={onUpdatePrompt}
+        onDeletePrompt={onDeletePrompt}
+        onUsePrompt={(body) => { setPrompt(body); setSettingsVisible(false); }}
       />
 
       {/* Top bar */}

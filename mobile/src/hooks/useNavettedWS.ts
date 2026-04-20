@@ -3,7 +3,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt } from '../types';
 
 const LAST_SEQ_KEY = 'navette_last_seq';
 
@@ -34,6 +34,7 @@ interface UseNavettedWSResult {
   skills: SkillInfo[];
   pastSessions: PastSessionInfo[];
   sessionHistory: Record<string, EventFrame[]>;
+  savedPrompts: SavedPrompt[];
   scheduledSessions: ScheduledSessionInfo[];
   reconnecting: boolean;
   reconnectCount: number;
@@ -53,6 +54,10 @@ interface UseNavettedWSResult {
   scheduleSession: (prompt: string, scheduledAt: number, options?: { container?: string; command?: string }) => void;
   cancelScheduledSession: (id: string) => void;
   listScheduledSessions: () => void;
+  listPrompts: () => void;
+  savePrompt: (title: string, body: string, tags?: string[]) => void;
+  updatePrompt: (id: string, title: string, body: string, tags?: string[]) => void;
+  deletePrompt: (id: string) => void;
 }
 
 export function useNavettedWS(): UseNavettedWSResult {
@@ -68,6 +73,7 @@ export function useNavettedWS(): UseNavettedWSResult {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [pastSessions, setPastSessions] = useState<PastSessionInfo[]>([]);
   const [sessionHistory, setSessionHistory] = useState<Record<string, EventFrame[]>>({});
+  const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionInfo[]>([]);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
@@ -199,6 +205,30 @@ export function useNavettedWS(): UseNavettedWSResult {
   const listScheduledSessions = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'list_scheduled_sessions' }));
+    }
+  }, []);
+
+  const listPrompts = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_prompts' }));
+    }
+  }, []);
+
+  const savePrompt = useCallback((title: string, body: string, tags?: string[]) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'save_prompt', title, body, tags: tags ?? [] }));
+    }
+  }, []);
+
+  const updatePrompt = useCallback((id: string, title: string, body: string, tags?: string[]) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'update_prompt', id, title, body, tags: tags ?? [] }));
+    }
+  }, []);
+
+  const deletePrompt = useCallback((id: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'delete_prompt', id }));
     }
   }, []);
 
@@ -437,6 +467,18 @@ export function useNavettedWS(): UseNavettedWSResult {
         return;
       }
 
+      if (msgType === 'prompts_list') {
+        setSavedPrompts((msg['prompts'] as SavedPrompt[] | undefined) ?? []);
+        return;
+      }
+
+      if (msgType === 'prompt_saved' || msgType === 'prompt_updated' || msgType === 'prompt_deleted') {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'list_prompts' }));
+        }
+        return;
+      }
+
       if (msgType === 'scheduled_sessions_list') {
         setScheduledSessions((msg['sessions'] as ScheduledSessionInfo[] | undefined) ?? []);
         return;
@@ -541,6 +583,7 @@ export function useNavettedWS(): UseNavettedWSResult {
     skills,
     pastSessions,
     sessionHistory,
+    savedPrompts,
     scheduledSessions,
     reconnecting,
     reconnectCount,
@@ -560,5 +603,9 @@ export function useNavettedWS(): UseNavettedWSResult {
     scheduleSession,
     cancelScheduledSession,
     listScheduledSessions,
+    listPrompts,
+    savePrompt,
+    updatePrompt,
+    deletePrompt,
   };
 }

@@ -136,3 +136,12 @@ export interface TestNotificationSentEvent {
   ok: boolean;
   error?: string;
 }
+
+export interface SavedPrompt {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  created_at: number;
+  updated_at: number;
+}

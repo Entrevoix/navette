@@ -15,11 +15,12 @@ import {
 } from 'react-native';
 
 import { DEFAULT_WHISPER_ENDPOINT, STT_ENGINE_KEY, STT_RECOGNIZER_LABEL_KEY, STT_RECOGNIZER_PKG_KEY, WHISPER_API_KEY_STORAGE, WHISPER_ENDPOINT_KEY } from '../components/VoiceButton';
+import { PromptLibraryScreen } from './PromptLibraryScreen';
 import { ScheduleScreen } from './ScheduleScreen';
 import { SessionHistoryScreen } from './SessionHistoryScreen';
 import { SkillsScreen } from './SkillsScreen';
 import type { SkillInfo } from '../hooks/useNavettedWS';
-import type { EventFrame, PastSessionInfo, ScheduledSessionInfo } from '../types';
+import type { EventFrame, PastSessionInfo, SavedPrompt, ScheduledSessionInfo } from '../types';
 
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
 
@@ -46,9 +47,15 @@ interface SettingsScreenProps {
   onScheduleSession: (prompt: string, scheduledAt: number) => void;
   onCancelScheduledSession: (id: string) => void;
   onListScheduledSessions: () => void;
+  savedPrompts: SavedPrompt[];
+  onListPrompts: () => void;
+  onSavePrompt: (title: string, body: string, tags?: string[]) => void;
+  onUpdatePrompt: (id: string, title: string, body: string, tags?: string[]) => void;
+  onDeletePrompt: (id: string) => void;
+  onUsePrompt: (body: string) => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [testFeedback, setTestFeedback] = useState<'idle' | 'sent' | 'failed'>('idle');
 
@@ -68,6 +75,7 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
   const [skillsVisible, setSkillsVisible] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [scheduleVisible, setScheduleVisible] = useState(false);
+  const [promptLibraryVisible, setPromptLibraryVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -129,6 +137,16 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <PromptLibraryScreen
+        visible={promptLibraryVisible}
+        onClose={() => setPromptLibraryVisible(false)}
+        prompts={savedPrompts}
+        onRefresh={onListPrompts}
+        onUse={(body) => { onUsePrompt(body); setPromptLibraryVisible(false); onClose(); }}
+        onSave={onSavePrompt}
+        onUpdate={onUpdatePrompt}
+        onDelete={onDeletePrompt}
+      />
       <SessionHistoryScreen
         visible={historyVisible}
         onClose={() => setHistoryVisible(false)}
@@ -251,6 +269,18 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
           <Pressable style={styles.skillsBtn} onPress={() => setSkillsVisible(true)}>
             <Text style={styles.skillsBtnText}>
               Browse Skills ({skills.length}) →
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Prompt Library</Text>
+          <Text style={styles.sectionSubtitle}>
+            Save and reuse prompt templates for common tasks.
+          </Text>
+          <Pressable style={styles.promptLibBtn} onPress={() => setPromptLibraryVisible(true)}>
+            <Text style={styles.promptLibBtnText}>
+              Browse Prompts ({savedPrompts.length}) →
             </Text>
           </Pressable>
         </View>
@@ -503,6 +533,20 @@ const styles = StyleSheet.create({
   },
   skillsBtnText: {
     color: '#a5b4fc',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  promptLibBtn: {
+    backgroundColor: '#1a1a0d',
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#4a4a00',
+    marginTop: 4,
+  },
+  promptLibBtnText: {
+    color: '#fbbf24',
     fontSize: 15,
     fontWeight: '700',
   },

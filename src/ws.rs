@@ -515,6 +515,76 @@ async fn handle_ws(
                                 if sink.send(Message::Text(reply)).await.is_err() {
                                     break;
                                 }
+                            } else if msg_type == "list_prompts" {
+                                let db2 = db.clone();
+                                let prompts = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::list_prompts(&conn)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "prompts_list",
+                                    "prompts": prompts,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "save_prompt" {
+                                let title = v.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                                let body = v.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                                let tags = v.get("tags").unwrap_or(&serde_json::json!([])).to_string();
+                                let prompt_id = new_session_id();
+                                let now = unix_ts();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::insert_prompt(&conn, &prompt_id, title, body, &tags, now);
+                                }
+                                tracing::info!(%client_id, %prompt_id, "prompt saved");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "prompt_saved",
+                                    "id": prompt_id,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "update_prompt" {
+                                let prompt_id = v.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let title = v.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                                let body = v.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                                let tags = v.get("tags").unwrap_or(&serde_json::json!([])).to_string();
+                                let now = unix_ts();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::update_prompt(&conn, &prompt_id, title, body, &tags, now);
+                                }
+                                tracing::info!(%client_id, %prompt_id, "prompt updated");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "prompt_updated",
+                                    "id": prompt_id,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "delete_prompt" {
+                                let prompt_id = v.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::delete_prompt(&conn, &prompt_id);
+                                }
+                                tracing::info!(%client_id, %prompt_id, "prompt deleted");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "prompt_deleted",
+                                    "id": prompt_id,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
                             } else if msg_type == "cancel_scheduled_session" {
                                 let sched_id = v
                                     .get("id")

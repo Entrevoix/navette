@@ -31,6 +31,14 @@ pub fn open() -> Result<Connection> {
              scheduled_at REAL    NOT NULL,
              created_at   REAL    NOT NULL,
              fired        INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS prompt_library (
+             id         TEXT    PRIMARY KEY,
+             title      TEXT    NOT NULL,
+             body       TEXT    NOT NULL,
+             tags       TEXT    NOT NULL DEFAULT '[]',
+             created_at REAL    NOT NULL,
+             updated_at REAL    NOT NULL
          );",
     )
     .context("failed to initialize schema")?;
@@ -258,6 +266,87 @@ pub fn list_scheduled_sessions(conn: &Connection) -> Result<Vec<serde_json::Valu
         .collect())
 }
 
+/// List all saved prompts, ordered by most recently updated.
+pub fn list_prompts(conn: &Connection) -> Result<Vec<serde_json::Value>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, title, body, tags, created_at, updated_at
+             FROM prompt_library ORDER BY updated_at DESC",
+        )
+        .context("prepare list_prompts")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, f64>(4)?,
+                row.get::<_, f64>(5)?,
+            ))
+        })
+        .context("query list_prompts")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect list_prompts")?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, title, body, tags, created_at, updated_at)| {
+            let parsed_tags: serde_json::Value =
+                serde_json::from_str(&tags).unwrap_or(serde_json::json!([]));
+            serde_json::json!({
+                "id": id,
+                "title": title,
+                "body": body,
+                "tags": parsed_tags,
+                "created_at": created_at,
+                "updated_at": updated_at,
+            })
+        })
+        .collect())
+}
+
+/// Insert a new saved prompt.
+pub fn insert_prompt(
+    conn: &Connection,
+    id: &str,
+    title: &str,
+    body: &str,
+    tags: &str,
+    now: f64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO prompt_library (id, title, body, tags, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        rusqlite::params![id, title, body, tags, now],
+    )
+    .context("insert_prompt failed")?;
+    Ok(())
+}
+
+/// Update an existing saved prompt.
+pub fn update_prompt(
+    conn: &Connection,
+    id: &str,
+    title: &str,
+    body: &str,
+    tags: &str,
+    now: f64,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE prompt_library SET title = ?2, body = ?3, tags = ?4, updated_at = ?5 WHERE id = ?1",
+        rusqlite::params![id, title, body, tags, now],
+    )
+    .context("update_prompt failed")?;
+    Ok(())
+}
+
+/// Delete a saved prompt by id.
+pub fn delete_prompt(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM prompt_library WHERE id = ?1", rusqlite::params![id])
+        .context("delete_prompt failed")?;
+    Ok(())
+}
+
 /// Enforce per-session event cap: drop oldest events beyond 10,000.
 pub fn enforce_retention(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -306,6 +395,14 @@ mod tests {
                  scheduled_at REAL    NOT NULL,
                  created_at   REAL    NOT NULL,
                  fired        INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS prompt_library (
+                 id         TEXT    PRIMARY KEY,
+                 title      TEXT    NOT NULL,
+                 body       TEXT    NOT NULL,
+                 tags       TEXT    NOT NULL DEFAULT '[]',
+                 created_at REAL    NOT NULL,
+                 updated_at REAL    NOT NULL
              );",
         )
         .unwrap();
@@ -452,5 +549,29 @@ mod tests {
         enforce_retention(&conn).unwrap();
         let rows = events_since(&conn, 0).unwrap();
         assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn prompt_library_crud() {
+        let conn = in_memory_db();
+
+        insert_prompt(&conn, "p1", "Fix tests", "cargo test --all", "[]", 1000.0).unwrap();
+        insert_prompt(&conn, "p2", "Deploy", "cargo build --release", r#"["ops"]"#, 2000.0).unwrap();
+
+        let all = list_prompts(&conn).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0]["id"], "p2");
+        assert_eq!(all[1]["id"], "p1");
+
+        update_prompt(&conn, "p1", "Fix all tests", "cargo test", r#"["dev"]"#, 3000.0).unwrap();
+        let updated = list_prompts(&conn).unwrap();
+        assert_eq!(updated[0]["id"], "p1");
+        assert_eq!(updated[0]["title"], "Fix all tests");
+        assert_eq!(updated[0]["tags"], serde_json::json!(["dev"]));
+
+        delete_prompt(&conn, "p2").unwrap();
+        let after_delete = list_prompts(&conn).unwrap();
+        assert_eq!(after_delete.len(), 1);
+        assert_eq!(after_delete[0]["id"], "p1");
     }
 }
