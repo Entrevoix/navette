@@ -264,6 +264,10 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   // True once detection has seeded the chain this session, so a later failure
   // doesn't loop back into detection indefinitely.
   const detectionRanRef = useRef(false);
+  // Retry counter for code-5/7 errors: Android 16 Soda may return ERROR_CLIENT
+  // immediately after a continuous session ends (mid-teardown). Retry once with
+  // a short delay before concluding the service is gone. Resets on successful start.
+  const noServiceRetryRef = useRef(0);
   // Last raw STT error — surfaced in the diagnostics dump so the user can
   // share it in a bug report instead of just the friendly message.
   const lastErrorRef = useRef<string | null>(null);
@@ -288,6 +292,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   // re-arms after each utterance boundary); we accumulate, then flush on
   // stop as a single isFinal=true callback.
   const finalSegmentsRef = useRef<string[]>([]);
+  const sessionTextRef = useRef('');
   // Latest in-progress (isFinal=false) transcript for the current utterance.
   const interimRef = useRef('');
   // Which engine the active session is using — used by handlePressOut to
@@ -620,7 +625,11 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         } else {
           interimRef.current = transcript;
         }
-        onTranscriptRef.current(composeText(), false);
+        const current = composeText();
+        const display = sessionTextRef.current
+          ? `${sessionTextRef.current} ${current}`
+          : current;
+        onTranscriptRef.current(display, false);
       }
     );
     // Lifecycle listeners. expo-speech-recognition emits these on Android;
@@ -629,6 +638,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     const lifecycleSubs = [
       ExpoSpeechRecognitionModule.addListener('start', () => {
         logEventRef.current('start');
+        noServiceRetryRef.current = 0;
       }),
       ExpoSpeechRecognitionModule.addListener('audiostart', () => {
         logEventRef.current('audiostart');
@@ -708,6 +718,17 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
             await triggerDetectionRef.current();
             return;
           }
+          // Android 16: after a continuous session ends, Soda's service is briefly
+          // mid-teardown and returns ERROR_CLIENT (code 5) on immediate re-start.
+          // Retry once after 700ms before wiping state and running detection.
+          if (noServiceRetryRef.current < 1) {
+            noServiceRetryRef.current += 1;
+            await new Promise<void>(r => setTimeout(r, 700));
+            if (!pressActiveRef.current) return;
+            await startRecognizerRef.current(savedPkg);
+            return;
+          }
+          noServiceRetryRef.current = 0;
           await AsyncStorage.removeItem(STT_RECOGNIZER_PKG_KEY);
           await AsyncStorage.removeItem(STT_RECOGNIZER_LABEL_KEY);
           await triggerDetectionRef.current();
@@ -745,17 +766,36 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     const endSub = ExpoSpeechRecognitionModule.addListener('end', () => {
       logEventRef.current('end');
       clearWatchdogRef.current();
-      // Flush: commit the composed transcript as a single isFinal=true
-      // emission, then clear the accumulator. The session ends here whether
-      // the user released, the watchdog fired, or Soda closed itself.
       const text = composeText();
-      if (text) onTranscriptRef.current(text, true);
+
+      // Tap-to-toggle: if user hasn't tapped stop yet (pressActiveRef still
+      // true), Soda ended on its own (silence/timeout). Accumulate the text
+      // from this segment and auto-restart after a brief delay.
+      if (pressActiveRef.current && activeEngineRef.current === 'ondevice') {
+        if (text) {
+          sessionTextRef.current = sessionTextRef.current
+            ? `${sessionTextRef.current} ${text}`
+            : text;
+        }
+        resetAccumulator();
+        started.current = false;
+        setIsListening(false);
+        stopPulse();
+        setTimeout(async () => {
+          if (!pressActiveRef.current) return;
+          const savedPkg = await AsyncStorage.getItem(STT_RECOGNIZER_PKG_KEY);
+          await startRecognizerRef.current(savedPkg);
+        }, 500);
+        return;
+      }
+
+      // User tapped stop (or whisper/max-duration) — send accumulated + final.
+      const finalText = sessionTextRef.current
+        ? (text ? `${sessionTextRef.current} ${text}` : sessionTextRef.current)
+        : text;
+      if (finalText) onTranscriptRef.current(finalText, true);
+      sessionTextRef.current = '';
       resetAccumulator();
-      // When Soda closes itself (service drop, timeout, continuous-mode
-      // session end), pressActiveRef is still true from handlePressIn.
-      // The re-entrancy guard in handlePressIn blocks the next tap unless
-      // we clear it here. Safe to do unconditionally — for user-initiated
-      // stops handlePressOut already cleared these before stop() was called.
       pressActiveRef.current = false;
       activeEngineRef.current = null;
       if (maxDurationTimer.current) {
@@ -943,21 +983,35 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     }
   }, []);
 
-  // ── Tap-to-toggle router (onPressIn starts, onPressOut stops) ───────────
+  // ── Tap-to-toggle router (tap once to start, tap again to stop) ─────────
 
-  const handlePressIn = useCallback(async () => {
+  const handleToggle = useCallback(async () => {
     if (detecting || disabled) return;
-    if (pressActiveRef.current) return; // re-entrancy guard
+
+    // Second tap — stop recording
+    if (pressActiveRef.current) {
+      pressActiveRef.current = false;
+      clearMaxTimer();
+      const engine = activeEngineRef.current;
+      activeEngineRef.current = null;
+      if (engine === 'whisper') {
+        void finishWhisper();
+      } else if (engine === 'ondevice') {
+        stopOnDevice();
+      }
+      return;
+    }
+
+    // First tap — start recording
     pressActiveRef.current = true;
+    sessionTextRef.current = '';
     errPersistRef.current = false;
     setErrMsg('');
-    // Safety cap — auto-stop if the session ever sticks open.
     clearMaxTimer();
     maxDurationTimer.current = setTimeout(() => {
       maxDurationTimer.current = null;
       if (pressActiveRef.current) {
         logEventRef.current('recording.max-duration');
-        // Synthesize a stop; engine routing reads activeEngineRef.
         pressActiveRef.current = false;
         if (activeEngineRef.current === 'whisper') {
           finishWhisper().catch((e: unknown) => {
@@ -972,7 +1026,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     }, MAX_RECORDING_MS);
 
     const engine = await AsyncStorage.getItem(STT_ENGINE_KEY);
-    if (!pressActiveRef.current) return; // stopped before engine resolved
+    if (!pressActiveRef.current) return;
     activeEngineRef.current = engine === 'whisper' ? 'whisper' : 'ondevice';
     if (activeEngineRef.current === 'whisper') {
       await startWhisper();
@@ -980,21 +1034,6 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       await startOnDevice();
     }
   }, [detecting, disabled, clearMaxTimer, finishWhisper, stopOnDevice, startWhisper, startOnDevice]);
-
-  const handlePressOut = useCallback(() => {
-    if (!pressActiveRef.current) return;
-    pressActiveRef.current = false;
-    clearMaxTimer();
-    const engine = activeEngineRef.current;
-    activeEngineRef.current = null;
-    if (engine === 'whisper') {
-      void finishWhisper();
-    } else if (engine === 'ondevice') {
-      stopOnDevice();
-    }
-    // engine === null means user stopped before AsyncStorage resolved;
-    // pressActiveRef guard in startOnDevice/startWhisper aborts the start.
-  }, [clearMaxTimer, finishWhisper, stopOnDevice]);
 
   return (
     <View>
@@ -1151,8 +1190,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         )}
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <Pressable
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
+            onPress={handleToggle}
             disabled={disabled || detecting}
             style={({ pressed }: { pressed: boolean }) => [
               styles.btn,
@@ -1230,7 +1268,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111', borderTopLeftRadius: 16, borderTopRightRadius: 16,
     padding: 24, paddingBottom: 40, gap: 12, maxHeight: '85%',
   },
-  errSheetScroll: { flexShrink: 1 },
+  errSheetScroll: { flex: 1 },
   sheetTitle: { color: '#f0f0f0', fontSize: 17, fontWeight: '700' },
   sheetSub: { color: '#666', fontSize: 13, marginBottom: 4 },
   sheetOption: {

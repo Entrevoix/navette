@@ -107,6 +107,9 @@ export function MainScreen({
 
   const [prompt, setPrompt] = useState('');
   const [isVoiceInterim, setIsVoiceInterim] = useState(false);
+  const promptRef = useRef('');
+  const voiceActiveRef = useRef(false);
+  const preVoicePromptRef = useRef('');
   const [container, setContainer] = useState(defaultContainer ?? '');
   const [workDir, setWorkDir] = useState('');
   const [customCommand, setCustomCommand] = useState('');
@@ -181,8 +184,15 @@ export function MainScreen({
   };
 
   const handleVoiceTranscript = useCallback((text: string, isFinal: boolean) => {
-    setPrompt(text);
+    if (!voiceActiveRef.current && !isFinal) {
+      preVoicePromptRef.current = promptRef.current;
+      voiceActiveRef.current = true;
+    }
+    const prefix = preVoicePromptRef.current;
+    setPrompt(prefix ? `${prefix} ${text}` : text);
+    promptRef.current = prefix ? `${prefix} ${text}` : text;
     setIsVoiceInterim(!isFinal);
+    if (isFinal) voiceActiveRef.current = false;
   }, []);
 
   const handleRun = () => {
@@ -325,7 +335,7 @@ export function MainScreen({
             <TextInput
               style={[styles.input, styles.promptInput, isVoiceInterim && styles.promptInterim]}
               value={prompt}
-              onChangeText={(t: string) => { setPrompt(t); setIsVoiceInterim(false); }}
+              onChangeText={(t: string) => { setPrompt(t); promptRef.current = t; setIsVoiceInterim(false); }}
               placeholder="What should Claude do?"
               placeholderTextColor="#6b7280"
               multiline

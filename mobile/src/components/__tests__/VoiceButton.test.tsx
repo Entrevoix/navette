@@ -24,6 +24,7 @@ jest.mock('expo-speech-recognition', () => ({
     addListener: jest.fn(),
     start: jest.fn(),
     stop: jest.fn(),
+    getPermissionsAsync: jest.fn(),
     requestPermissionsAsync: jest.fn(),
     getSupportedLocales: jest.fn(),
     getSpeechRecognitionServices: jest.fn(),
@@ -60,6 +61,7 @@ const speechMocked = jest.requireMock('expo-speech-recognition') as any;
 const mockAddListener = speechMocked.ExpoSpeechRecognitionModule.addListener as jest.Mock;
 const mockStart = speechMocked.ExpoSpeechRecognitionModule.start as jest.Mock;
 const mockStop = speechMocked.ExpoSpeechRecognitionModule.stop as jest.Mock;
+const mockGetPermissionsAsync = speechMocked.ExpoSpeechRecognitionModule.getPermissionsAsync as jest.Mock;
 const mockRequestPermissionsAsync = speechMocked.ExpoSpeechRecognitionModule.requestPermissionsAsync as jest.Mock;
 const mockGetSupportedLocales = speechMocked.ExpoSpeechRecognitionModule.getSupportedLocales as jest.Mock;
 const mockGetSpeechRecognitionServices = speechMocked.ExpoSpeechRecognitionModule.getSpeechRecognitionServices as jest.Mock;
@@ -87,15 +89,24 @@ function renderButton(props: { disabled?: boolean } = {}) {
   return render(<VoiceButton onTranscript={onTranscript} {...props} />);
 }
 
-// Tap helpers — drive the start (pressIn) and stop (pressOut) lifecycle
-// directly. Default jest preset has Platform.OS === 'ios' so the on-device
+// Tap helpers — drive the tap-to-toggle lifecycle directly.
+// First press starts recording, second press stops it.
+// Default jest preset has Platform.OS === 'ios' so the on-device
 // path goes through expo-speech-recognition's requestPermissionsAsync (not
 // Android's PermissionsAndroid).
+async function flushMicrotasks(n = 10) {
+  for (let i = 0; i < n; i++) {
+    await act(async () => { await Promise.resolve(); });
+  }
+}
+
 async function pressIn(node: ReturnType<ReturnType<typeof render>['getByText']>) {
-  await act(async () => { fireEvent(node, 'pressIn'); });
+  await act(async () => { fireEvent(node, 'press'); });
+  await flushMicrotasks();
 }
 async function pressOut(node: ReturnType<ReturnType<typeof render>['getByText']>) {
-  await act(async () => { fireEvent(node, 'pressOut'); });
+  await act(async () => { fireEvent(node, 'press'); });
+  await flushMicrotasks();
 }
 
 // Capture listeners registered with addListener so tests can fire events
@@ -108,6 +119,7 @@ beforeEach(() => {
   mockAsyncStorageGetItem.mockResolvedValue(null);
 
   // Default: permissions granted
+  mockGetPermissionsAsync.mockResolvedValue({ granted: true, canAskAgain: true });
   mockRequestPermissionsAsync.mockResolvedValue({ granted: true });
   mockAudioRequestPermissions.mockResolvedValue({ granted: true });
   mockSetAudioMode.mockResolvedValue(undefined);
@@ -172,6 +184,7 @@ describe('VoiceButton — on-device tap-to-toggle (default)', () => {
   });
 
   it('shows error when mic permission denied', async () => {
+    mockGetPermissionsAsync.mockResolvedValueOnce({ granted: false, canAskAgain: true });
     mockRequestPermissionsAsync.mockResolvedValueOnce({ granted: false });
     const { getByText } = renderButton();
     await pressIn(getByText('⏺'));
@@ -303,9 +316,7 @@ describe('VoiceButton — silent-hang watchdog (6s no audio)', () => {
 
   it('fires after 6s of no audio events and surfaces a diagnostics error', async () => {
     const { getByText } = renderButton();
-    await act(async () => { fireEvent(getByText('⏺'), 'pressIn'); });
-    // Let pending promises settle (permission, locale pick, start)
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    await pressIn(getByText('⏺'));
     expect(mockStart).toHaveBeenCalled();
     // Advance past the 6s watchdog without firing any audio/speech event
     await act(async () => { jest.advanceTimersByTime(6500); });
@@ -315,8 +326,7 @@ describe('VoiceButton — silent-hang watchdog (6s no audio)', () => {
 
   it('does NOT fire when an audiostart event arrives before 6s', async () => {
     const { getByText, queryByText } = renderButton();
-    await act(async () => { fireEvent(getByText('⏺'), 'pressIn'); });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    await pressIn(getByText('⏺'));
     // Audio flowed before the watchdog deadline
     await act(async () => { listeners['audiostart']?.({}); });
     await act(async () => { jest.advanceTimersByTime(6500); });
@@ -330,8 +340,7 @@ describe('VoiceButton — max-duration safety cap (3 min)', () => {
 
   it('auto-stops the on-device session after 3 minutes', async () => {
     const { getByText } = renderButton();
-    await act(async () => { fireEvent(getByText('⏺'), 'pressIn'); });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    await pressIn(getByText('⏺'));
     expect(mockStart).toHaveBeenCalled();
     // Advance past the 3-min cap
     await act(async () => { jest.advanceTimersByTime(3 * 60 * 1000 + 100); });
@@ -397,13 +406,11 @@ describe('VoiceButton — picker auto-start arms the safety cap', () => {
 
     const { getByText, queryAllByText } = renderButton();
 
-    await act(async () => { fireEvent(getByText('⏺'), 'pressIn'); });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    await pressIn(getByText('⏺'));
     await act(async () => {
       listeners['error']?.({ code: 5, error: 'client', message: 'no service' });
     });
-    // Let detection scan + setPickerVisible(true) flush
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    await flushMicrotasks();
 
     // Find the Bixby option specifically — avoids matching the "Using Google" toast
     // text that the single-hit auto-start path would render.
@@ -415,7 +422,7 @@ describe('VoiceButton — picker auto-start arms the safety cap', () => {
     }
     const startCallsBeforePick = mockStart.mock.calls.length;
     await act(async () => { fireEvent.press(bixbyMatches[0]); });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    await flushMicrotasks();
     expect(mockStart.mock.calls.length).toBeGreaterThan(startCallsBeforePick);
 
     // Advance past the 3-min cap — the regression was that picker-started
