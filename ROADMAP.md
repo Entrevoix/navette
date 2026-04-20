@@ -131,7 +131,8 @@ Features the daemon supports that mobile does not yet expose:
 | approval_warning UI | ~~P2~~ **shipped** | useClaudedWS marks approval urgent; ApprovalCard pulses orange border ≤30s |
 | ntfy in-app onboarding | ~~P3~~ **shipped** | Notifications section: topic display + ntfy:// deep-link + send-test button |
 | Telegram notification channel | ~~P3~~ **shipped** | NotifyClient::send_telegram via Bot API; broadcasts approval/expiry/session events |
-| Voice input (Whisper on-device) | P3 | Reduces friction for mobile prompt authoring; multi-day spike, deferred |
+| Voice input (on-device STT) | ~~P3~~ **shipped** | Tap-to-toggle mic via Google on-device Soda recognizer; auto-restarts on silence gaps; text accumulates across sessions; Android 16 Soda workarounds (EXTRA_LANGUAGE_MODEL=web_search, 500ms restart delay) |
+| Whisper API fallback for STT | P3 | Cloud-based fallback when on-device STT fails or is unavailable; needs API key config in settings; recording via expo-av + POST to Whisper endpoint |
 | Android `.aab` release build + signing | P3 | Current APK is debug-signed; needs keystore + Play Store account |
 | Upgrade to Expo 54 / RN 0.81.5+ | P2 | Permanent fix for Android 16 (Sept 2025 patch) permission-hang regression — currently patched via JS check-first workaround in VoiceButton.tsx (facebook/react-native#53898 lands in 0.81.5). Also clears 16KB page-size + ErrorUtils tech debt. |
 | iOS App Store submission | P3 | Requires Apple Developer account and TestFlight distribution |
