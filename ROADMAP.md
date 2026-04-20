@@ -92,6 +92,45 @@ WebSocket drops on network change (WiFi → cellular, subway tunnels, sleep) wer
 
 ---
 
+## Unscheduled Plans
+
+Detailed PRP specs exist in `.claude/PRPs/plans/` but aren't yet slotted into a
+sprint. Listed here so they're visible alongside formal work.
+
+| Plan | Area | Priority | One-line scope |
+|---|---|---|---|
+| `session-ux-improvements` | Mobile | P1 | 5-min lock grace period, fresh-connect view, directory picker wired up |
+| `smart-approval-ux` | Mobile | P1 | Batch approve/deny, quick-response button detection, per-hunk diff accept |
+| `secrets-management` | Daemon + Mobile | P1 | Encrypted SQLite vault (AES-256-GCM) + per-session env injection |
+| `prompt-library-templates` | Daemon + Mobile | P2 | Saved-prompt CRUD + PromptLibraryScreen |
+| `file-browser-config-editor` | Daemon + Mobile | P2 | `read_file`/`write_file` WS scoped to `.claude/` + FileBrowserScreen |
+| `session-search-kanban-indicators` | Daemon + Mobile | P2 | FTS5 over events, unread badges, kanban view |
+| `desktop-stt-offload` | Daemon + Mobile | P3 | GPU-accelerated whisper.cpp on daemon; phone streams audio |
+
+## Unplanned Primitives
+
+Missing from both code and plans as of 2026-04-20 audit. Tracked here so they
+don't get lost.
+
+| Primitive | Priority | Notes |
+|---|---|---|
+| Auth pairing + TLS | P0 | Currently only a static bearer token; see PROMPTS/roadmap-hardening.md Phase 1 |
+| Approval policy / allowlist | P1 | Per-tool allow/deny rules to cut notification fatigue |
+| Cost guardrails | P1 | Budget caps on top of existing token tracking |
+| CI pipeline (test/lint/typecheck) | P1 | Two landed PRs were user-found crashes; add gate |
+| Structured logging + rotation | P2 | `tracing` + daily file rotation; required for real ops |
+| `/healthz` + `/readyz` | P2 | Table-stakes for systemd/docker/k8s self-hosting |
+| WS rate limiting + connection cap | P2 | Token bucket per connection, global max connections |
+| Audit log table | P2 | Append-only record of paired/revoked/approve/deny/etc. |
+| Session labels / tags | P3 | Group sessions (feature / ops / docs) |
+| Session TTL / GC | P3 | Promoted from TODOS.md:50 — `navetted gc` subcommand |
+| Webhook outbound surface | P3 | HMAC-signed callbacks for session + approval events |
+| MCP server registry | P3 | Daemon-level MCP lifecycle + mobile UI |
+| Multi-user / RBAC | Strategic | Direction decision; currently single-tenant by design |
+| Tauri desktop client | Strategic | TODOS.md:36; competitive matrix omits desktop column |
+
+---
+
 ## Known Bugs
 
 | Bug | Area | Notes |
