@@ -18,7 +18,7 @@ import { EventFeed } from '../components/EventFeed';
 import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, SavedPrompt, ScheduledSessionInfo, SessionInfo, SessionStatus } from '../types';
+import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useNavettedWS';
 
 interface MainScreenProps {
@@ -37,7 +37,7 @@ interface MainScreenProps {
   reconnectCount: number;
   onDecide: (tool_use_id: string, allow: boolean) => void;
   onDisconnect: () => void;
-  onRun: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string) => void;
+  onRun: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean) => void;
   onKill: (sessionId?: string) => void;
   onSendInput: (text: string) => void;
   onRequestNotifyConfig: () => void;
@@ -59,6 +59,10 @@ interface MainScreenProps {
   onSavePrompt: (title: string, body: string, tags?: string[]) => void;
   onUpdatePrompt: (id: string, title: string, body: string, tags?: string[]) => void;
   onDeletePrompt: (id: string) => void;
+  secrets: SecretEntry[];
+  onListSecrets: () => void;
+  onSetSecret: (name: string, value: string) => void;
+  onDeleteSecret: (name: string) => void;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -114,6 +118,10 @@ export function MainScreen({
   onSavePrompt,
   onUpdatePrompt,
   onDeletePrompt,
+  secrets,
+  onListSecrets,
+  onSetSecret,
+  onDeleteSecret,
 }: MainScreenProps) {
   const AGENTS = ['claude', 'codex', 'gemini', 'aider'] as const;
   type AgentName = typeof AGENTS[number];
@@ -127,6 +135,7 @@ export function MainScreen({
   const [workDir, setWorkDir] = useState('');
   const [customCommand, setCustomCommand] = useState('');
   const [selectedAgent, setSelectedAgent] = useState<AgentName>('claude');
+  const [injectSecrets, setInjectSecrets] = useState(false);
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -212,7 +221,7 @@ export function MainScreen({
     const p = prompt.trim();
     if (!p) return;
     const agentCommand = customCommand.trim() || (selectedAgent !== 'claude' ? selectedAgent : undefined);
-    onRun(p, container.trim() || undefined, dangerouslySkipPermissions, workDir.trim() || undefined, agentCommand);
+    onRun(p, container.trim() || undefined, dangerouslySkipPermissions, workDir.trim() || undefined, agentCommand, injectSecrets);
     setPrompt('');
     setIsVoiceInterim(false);
   };
@@ -251,6 +260,10 @@ export function MainScreen({
         onUpdatePrompt={onUpdatePrompt}
         onDeletePrompt={onDeletePrompt}
         onUsePrompt={(body) => { setPrompt(body); setSettingsVisible(false); }}
+        secrets={secrets}
+        onListSecrets={onListSecrets}
+        onSetSecret={onSetSecret}
+        onDeleteSecret={onDeleteSecret}
       />
 
       {/* Top bar */}
@@ -418,6 +431,25 @@ export function MainScreen({
                 autoCapitalize="none"
                 autoCorrect={false}
               />
+
+              {/* Inject secrets toggle */}
+              <Pressable
+                style={[
+                  styles.injectSecretsToggle,
+                  injectSecrets && styles.injectSecretsToggleOn,
+                ]}
+                onPress={() => setInjectSecrets(v => !v)}
+              >
+                <View style={[styles.skipPermsIndicator, injectSecrets && styles.injectSecretsIndicatorOn]} />
+                <View style={styles.skipPermsLabelCol}>
+                  <Text style={[styles.skipPermsText, injectSecrets && styles.injectSecretsTextOn]}>
+                    {injectSecrets ? `Inject secrets (${secrets.length})` : 'Inject secrets into session'}
+                  </Text>
+                  {injectSecrets && (
+                    <Text style={styles.injectSecretsHint}>Secrets will be available as env vars</Text>
+                  )}
+                </View>
+              </Pressable>
 
               {/* Skip permissions toggle */}
               <Pressable
@@ -626,6 +658,22 @@ const styles = StyleSheet.create({
   skipPermsTextConfirming: { color: '#fbbf24', fontWeight: '600' },
   skipPermsLabelCol: { flex: 1 },
   skipPermsWarning: { color: '#ef4444', fontSize: 10, marginTop: 2 },
+
+  injectSecretsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#0d0d0d',
+  },
+  injectSecretsToggleOn: { borderColor: '#166534', backgroundColor: '#0a1a0a' },
+  injectSecretsIndicatorOn: { backgroundColor: '#4ade80' },
+  injectSecretsTextOn: { color: '#4ade80', fontWeight: '700' },
+  injectSecretsHint: { color: '#4ade80', fontSize: 10, marginTop: 2 },
 
   advancedHeader: {
     paddingVertical: 6,

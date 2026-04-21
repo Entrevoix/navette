@@ -3,7 +3,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry } from '../types';
 
 const LAST_SEQ_KEY = 'navette_last_seq';
 
@@ -35,13 +35,14 @@ interface UseNavettedWSResult {
   pastSessions: PastSessionInfo[];
   sessionHistory: Record<string, EventFrame[]>;
   savedPrompts: SavedPrompt[];
+  secrets: SecretEntry[];
   scheduledSessions: ScheduledSessionInfo[];
   reconnecting: boolean;
   reconnectCount: number;
   connect: (config: ServerConfig) => void;
   disconnect: () => void;
   decide: (tool_use_id: string, allow: boolean) => void;
-  run: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string) => void;
+  run: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean) => void;
   kill: (sessionId?: string) => void;
   sendInput: (text: string, sessionId?: string) => void;
   getNotifyConfig: () => void;
@@ -58,6 +59,9 @@ interface UseNavettedWSResult {
   savePrompt: (title: string, body: string, tags?: string[]) => void;
   updatePrompt: (id: string, title: string, body: string, tags?: string[]) => void;
   deletePrompt: (id: string) => void;
+  listSecrets: () => void;
+  setSecret: (name: string, value: string) => void;
+  deleteSecret: (name: string) => void;
 }
 
 export function useNavettedWS(): UseNavettedWSResult {
@@ -74,6 +78,7 @@ export function useNavettedWS(): UseNavettedWSResult {
   const [pastSessions, setPastSessions] = useState<PastSessionInfo[]>([]);
   const [sessionHistory, setSessionHistory] = useState<Record<string, EventFrame[]>>({});
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
+  const [secrets, setSecrets] = useState<SecretEntry[]>([]);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionInfo[]>([]);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
@@ -111,7 +116,7 @@ export function useNavettedWS(): UseNavettedWSResult {
     );
   }, []);
 
-  const run = useCallback((prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string) => {
+  const run = useCallback((prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'run',
@@ -120,6 +125,7 @@ export function useNavettedWS(): UseNavettedWSResult {
         dangerously_skip_permissions: dangerouslySkipPermissions ?? false,
         work_dir: workDir || null,
         command: command || null,
+        inject_secrets: injectSecrets ?? false,
       }));
     }
   }, []);
@@ -229,6 +235,24 @@ export function useNavettedWS(): UseNavettedWSResult {
   const deletePrompt = useCallback((id: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'delete_prompt', id }));
+    }
+  }, []);
+
+  const listSecrets = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_secrets' }));
+    }
+  }, []);
+
+  const setSecret = useCallback((name: string, value: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'set_secret', name, value }));
+    }
+  }, []);
+
+  const deleteSecret = useCallback((name: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'delete_secret', name }));
     }
   }, []);
 
@@ -479,6 +503,18 @@ export function useNavettedWS(): UseNavettedWSResult {
         return;
       }
 
+      if (msgType === 'secrets_list') {
+        setSecrets((msg['secrets'] as SecretEntry[] | undefined) ?? []);
+        return;
+      }
+
+      if (msgType === 'secret_saved' || msgType === 'secret_deleted') {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'list_secrets' }));
+        }
+        return;
+      }
+
       if (msgType === 'scheduled_sessions_list') {
         setScheduledSessions((msg['sessions'] as ScheduledSessionInfo[] | undefined) ?? []);
         return;
@@ -584,6 +620,7 @@ export function useNavettedWS(): UseNavettedWSResult {
     pastSessions,
     sessionHistory,
     savedPrompts,
+    secrets,
     scheduledSessions,
     reconnecting,
     reconnectCount,
@@ -607,5 +644,8 @@ export function useNavettedWS(): UseNavettedWSResult {
     savePrompt,
     updatePrompt,
     deletePrompt,
+    listSecrets,
+    setSecret,
+    deleteSecret,
   };
 }

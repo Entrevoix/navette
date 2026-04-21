@@ -4,7 +4,19 @@
 use std::os::unix::fs::PermissionsExt;
 
 use anyhow::{Context, Result};
+use rand::Rng;
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+use ring::hkdf;
 use rusqlite::Connection;
+
+const HKDF_SALT: &[u8] = b"navetted-secrets-v1";
+
+struct AesKeyLen;
+impl hkdf::KeyType for AesKeyLen {
+    fn len(&self) -> usize {
+        32
+    }
+}
 
 pub fn open() -> Result<Connection> {
     let data_dir = data_dir()?;
@@ -37,6 +49,13 @@ pub fn open() -> Result<Connection> {
              title      TEXT    NOT NULL,
              body       TEXT    NOT NULL,
              tags       TEXT    NOT NULL DEFAULT '[]',
+             created_at REAL    NOT NULL,
+             updated_at REAL    NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS secrets (
+             name       TEXT    PRIMARY KEY,
+             encrypted  BLOB    NOT NULL,
+             nonce      BLOB    NOT NULL,
              created_at REAL    NOT NULL,
              updated_at REAL    NOT NULL
          );",
@@ -347,6 +366,98 @@ pub fn delete_prompt(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+// ── Secrets vault (AES-256-GCM encrypted at rest) ────────────────────────────
+
+pub fn derive_secret_key(token: &str) -> Result<LessSafeKey> {
+    let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, HKDF_SALT);
+    let prk = salt.extract(token.as_bytes());
+    let okm = prk
+        .expand(&[b"aes-256-gcm-key"], AesKeyLen)
+        .map_err(|_| anyhow::anyhow!("HKDF expand failed"))?;
+    let mut key_bytes = [0u8; 32];
+    okm.fill(&mut key_bytes)
+        .map_err(|_| anyhow::anyhow!("HKDF fill failed"))?;
+    let unbound = UnboundKey::new(&AES_256_GCM, &key_bytes)
+        .map_err(|_| anyhow::anyhow!("AES key construction failed"))?;
+    Ok(LessSafeKey::new(unbound))
+}
+
+pub fn encrypt_secret(key: &LessSafeKey, plaintext: &[u8]) -> Result<(Vec<u8>, [u8; 12])> {
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill(&mut nonce_bytes[..]);
+    let nonce = Nonce::assume_unique_for_key(nonce_bytes);
+    let mut in_out = plaintext.to_vec();
+    key.seal_in_place_append_tag(nonce, Aad::empty(), &mut in_out)
+        .map_err(|_| anyhow::anyhow!("encryption failed"))?;
+    Ok((in_out, nonce_bytes))
+}
+
+pub fn decrypt_secret(key: &LessSafeKey, ciphertext: &[u8], nonce_bytes: &[u8]) -> Result<Vec<u8>> {
+    let nonce = Nonce::try_assume_unique_for_key(nonce_bytes)
+        .map_err(|_| anyhow::anyhow!("invalid nonce length"))?;
+    let mut in_out = ciphertext.to_vec();
+    let plaintext = key
+        .open_in_place(nonce, Aad::empty(), &mut in_out)
+        .map_err(|_| anyhow::anyhow!("decryption failed — wrong key or corrupted data"))?;
+    Ok(plaintext.to_vec())
+}
+
+pub fn list_secrets(conn: &Connection) -> Result<Vec<(String, f64, f64)>> {
+    let mut stmt = conn
+        .prepare("SELECT name, created_at, updated_at FROM secrets ORDER BY name")
+        .context("prepare list_secrets")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, f64>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
+        })
+        .context("query list_secrets")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect list_secrets")?;
+    Ok(rows)
+}
+
+pub fn get_secret_encrypted(conn: &Connection, name: &str) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+    match conn.query_row(
+        "SELECT encrypted, nonce FROM secrets WHERE name = ?1",
+        rusqlite::params![name],
+        |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
+    ) {
+        Ok(pair) => Ok(Some(pair)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e).context("get_secret_encrypted failed"),
+    }
+}
+
+pub fn set_secret(
+    conn: &Connection,
+    name: &str,
+    encrypted: &[u8],
+    nonce: &[u8],
+    now: f64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO secrets (name, encrypted, nonce, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)
+         ON CONFLICT(name) DO UPDATE SET encrypted = excluded.encrypted, nonce = excluded.nonce, updated_at = excluded.updated_at",
+        rusqlite::params![name, encrypted, nonce, now],
+    )
+    .context("set_secret failed")?;
+    Ok(())
+}
+
+pub fn delete_secret(conn: &Connection, name: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM secrets WHERE name = ?1",
+        rusqlite::params![name],
+    )
+    .context("delete_secret failed")?;
+    Ok(())
+}
+
 /// Enforce per-session event cap: drop oldest events beyond 10,000.
 pub fn enforce_retention(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -401,6 +512,13 @@ mod tests {
                  title      TEXT    NOT NULL,
                  body       TEXT    NOT NULL,
                  tags       TEXT    NOT NULL DEFAULT '[]',
+                 created_at REAL    NOT NULL,
+                 updated_at REAL    NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS secrets (
+                 name       TEXT    PRIMARY KEY,
+                 encrypted  BLOB    NOT NULL,
+                 nonce      BLOB    NOT NULL,
                  created_at REAL    NOT NULL,
                  updated_at REAL    NOT NULL
              );",
@@ -573,5 +691,63 @@ mod tests {
         let after_delete = list_prompts(&conn).unwrap();
         assert_eq!(after_delete.len(), 1);
         assert_eq!(after_delete[0]["id"], "p1");
+    }
+
+    #[test]
+    fn secret_encrypt_decrypt_roundtrip() {
+        let conn = in_memory_db();
+        let key = derive_secret_key("test-token-32chars-1234567890ab").unwrap();
+
+        let plaintext = b"my-secret-api-key-12345";
+        let (encrypted, nonce) = encrypt_secret(&key, plaintext).unwrap();
+
+        set_secret(&conn, "GITHUB_TOKEN", &encrypted, &nonce, 1000.0).unwrap();
+
+        let secrets = list_secrets(&conn).unwrap();
+        assert_eq!(secrets.len(), 1);
+        assert_eq!(secrets[0].0, "GITHUB_TOKEN");
+
+        let (enc, non) = get_secret_encrypted(&conn, "GITHUB_TOKEN")
+            .unwrap()
+            .unwrap();
+        let decrypted = decrypt_secret(&key, &enc, &non).unwrap();
+        assert_eq!(decrypted, plaintext);
+
+        delete_secret(&conn, "GITHUB_TOKEN").unwrap();
+        assert_eq!(list_secrets(&conn).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn secret_upsert_updates_value() {
+        let conn = in_memory_db();
+        let key = derive_secret_key("test-token-32chars-1234567890ab").unwrap();
+
+        let (enc1, non1) = encrypt_secret(&key, b"old-value").unwrap();
+        set_secret(&conn, "MY_KEY", &enc1, &non1, 1000.0).unwrap();
+
+        let (enc2, non2) = encrypt_secret(&key, b"new-value").unwrap();
+        set_secret(&conn, "MY_KEY", &enc2, &non2, 2000.0).unwrap();
+
+        let secrets = list_secrets(&conn).unwrap();
+        assert_eq!(secrets.len(), 1);
+
+        let (enc, non) = get_secret_encrypted(&conn, "MY_KEY").unwrap().unwrap();
+        let decrypted = decrypt_secret(&key, &enc, &non).unwrap();
+        assert_eq!(decrypted, b"new-value");
+    }
+
+    #[test]
+    fn secret_not_found_returns_none() {
+        let conn = in_memory_db();
+        assert!(get_secret_encrypted(&conn, "NONEXISTENT").unwrap().is_none());
+    }
+
+    #[test]
+    fn secret_wrong_key_fails_decrypt() {
+        let key1 = derive_secret_key("token-one-1234567890123456789012").unwrap();
+        let key2 = derive_secret_key("token-two-1234567890123456789012").unwrap();
+
+        let (encrypted, nonce) = encrypt_secret(&key1, b"secret-data").unwrap();
+        assert!(decrypt_secret(&key2, &encrypted, &nonce).is_err());
     }
 }

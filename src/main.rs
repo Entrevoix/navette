@@ -57,6 +57,7 @@ pub struct RunRequest {
     pub dangerously_skip_permissions: bool,
     pub work_dir: Option<String>,
     pub command: Option<String>,
+    pub inject_secrets: bool,
 }
 
 #[tokio::main]
@@ -202,8 +203,10 @@ async fn main() -> Result<()> {
                         dangerously_skip_permissions: false,
                         work_dir: None,
                         command,
+                        inject_secrets: false,
                     };
                     tracing::info!(scheduled_id = %id, %session_id, "scheduler: firing session");
+                    let sched_token = scheduler_cfg.token.clone();
                     tokio::spawn(run_session(
                         session_id,
                         req,
@@ -212,6 +215,7 @@ async fn main() -> Result<()> {
                         scheduler_pending.clone(),
                         scheduler_events_tx.clone(),
                         kill_rx,
+                        sched_token,
                     ));
                 }
             }
@@ -250,6 +254,7 @@ pub async fn run_session(
     pending: PendingApprovals,
     events_tx: ws::EventTx,
     kill_rx: oneshot::Receiver<()>,
+    token: String,
 ) {
     let ts = unix_ts();
     let started_json = serde_json::to_string(&serde_json::json!({
@@ -280,6 +285,33 @@ pub async fn run_session(
         }
     };
 
+    let secrets: HashMap<String, String> = if req.inject_secrets {
+        match db::derive_secret_key(&token) {
+            Ok(key) => {
+                let conn = db.lock().unwrap();
+                let names = db::list_secrets(&conn).unwrap_or_default();
+                let mut map = HashMap::new();
+                for (name, _, _) in &names {
+                    if let Ok(Some((enc, non))) = db::get_secret_encrypted(&conn, name) {
+                        if let Ok(plaintext) = db::decrypt_secret(&key, &enc, &non) {
+                            if let Ok(val) = String::from_utf8(plaintext) {
+                                map.insert(name.clone(), val);
+                            }
+                        }
+                    }
+                }
+                tracing::info!(secret_count = map.len(), "injecting secrets into session");
+                map
+            }
+            Err(e) => {
+                tracing::error!("failed to derive secret key: {e:#}");
+                HashMap::new()
+            }
+        }
+    } else {
+        HashMap::new()
+    };
+
     let result = claude::spawn_and_process(
         &req.prompt,
         req.container.as_deref(),
@@ -294,6 +326,7 @@ pub async fn run_session(
         input_tokens,
         output_tokens,
         cache_read_tokens,
+        &secrets,
     )
     .await;
 

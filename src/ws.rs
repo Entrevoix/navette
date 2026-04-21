@@ -239,13 +239,20 @@ async fn handle_ws(
                                     });
                                     crate::emit_session_list_changed(&sessions, &events_tx).await;
 
+                                    let inject_secrets = v
+                                        .get("inject_secrets")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+
                                     let req = crate::RunRequest {
                                         prompt: prompt.to_string(),
                                         container,
                                         dangerously_skip_permissions,
                                         work_dir,
                                         command,
+                                        inject_secrets,
                                     };
+                                    let run_token = token.clone();
                                     tokio::spawn(crate::run_session(
                                         session_id.clone(),
                                         req,
@@ -254,6 +261,7 @@ async fn handle_ws(
                                         pending.clone(),
                                         events_tx.clone(),
                                         kill_rx,
+                                        run_token,
                                     ));
                                     tracing::info!(%client_id, %session_id, "spawned session");
 
@@ -580,6 +588,119 @@ async fn handle_ws(
                                 let reply = serde_json::to_string(&serde_json::json!({
                                     "type": "prompt_deleted",
                                     "id": prompt_id,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "list_secrets" {
+                                let db2 = db.clone();
+                                let list_token = token.clone();
+                                let secrets_list = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    let names = db::list_secrets(&conn)?;
+                                    let key = db::derive_secret_key(&list_token)?;
+                                    let mut out = Vec::new();
+                                    for (name, created_at, updated_at) in &names {
+                                        let masked = match db::get_secret_encrypted(&conn, name)? {
+                                            Some((enc, non)) => {
+                                                let plain = db::decrypt_secret(&key, &enc, &non)
+                                                    .unwrap_or_default();
+                                                let s = String::from_utf8_lossy(&plain);
+                                                if s.len() >= 4 {
+                                                    format!("••••{}", &s[s.len() - 4..])
+                                                } else {
+                                                    "••••".to_string()
+                                                }
+                                            }
+                                            None => "••••".to_string(),
+                                        };
+                                        out.push(serde_json::json!({
+                                            "name": name,
+                                            "masked": masked,
+                                            "created_at": created_at,
+                                            "updated_at": updated_at,
+                                        }));
+                                    }
+                                    Ok::<_, anyhow::Error>(out)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "secrets_list",
+                                    "secrets": secrets_list,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "set_secret" {
+                                let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let value = v.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                if name.is_empty() || value.is_empty() {
+                                    let reply = serde_json::to_string(&serde_json::json!({
+                                        "type": "error",
+                                        "message": "name and value are required",
+                                    }))
+                                    .unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                } else if value.len() > 10_240 {
+                                    let reply = serde_json::to_string(&serde_json::json!({
+                                        "type": "error",
+                                        "message": "secret value exceeds 10KB limit",
+                                    }))
+                                    .unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                } else {
+                                    let set_token = token.clone();
+                                    let set_value = value.to_string();
+                                    let set_name = name.clone();
+                                    let db2 = db.clone();
+                                    let save_result = tokio::task::spawn_blocking(move || {
+                                        let key = db::derive_secret_key(&set_token)?;
+                                        let (encrypted, nonce) = db::encrypt_secret(&key, set_value.as_bytes())?;
+                                        let conn = db2.lock().unwrap();
+                                        db::set_secret(&conn, &set_name, &encrypted, &nonce, unix_ts())
+                                    })
+                                    .await
+                                    .context("spawn_blocking panicked")?;
+                                    let reply = match save_result {
+                                        Ok(()) => {
+                                            tracing::info!(%client_id, secret_name = %name, "secret saved");
+                                            serde_json::to_string(&serde_json::json!({
+                                                "type": "secret_saved",
+                                                "name": name,
+                                            }))
+                                            .unwrap_or_default()
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(%client_id, "set_secret failed: {e:#}");
+                                            serde_json::to_string(&serde_json::json!({
+                                                "type": "error",
+                                                "message": "failed to save secret",
+                                            }))
+                                            .unwrap_or_default()
+                                        }
+                                    };
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "delete_secret" {
+                                let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::delete_secret(&conn, &name);
+                                }
+                                tracing::info!(%client_id, secret_name = %name, "secret deleted");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "secret_deleted",
+                                    "name": name,
                                 }))
                                 .unwrap_or_default();
                                 if sink.send(Message::Text(reply)).await.is_err() {

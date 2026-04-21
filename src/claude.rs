@@ -1,6 +1,7 @@
 // Copyright (C) 2025 Entrevoix, Inc.
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -36,6 +37,7 @@ pub async fn spawn_and_process(
     input_tokens: Arc<AtomicU64>,
     output_tokens: Arc<AtomicU64>,
     cache_read_tokens: Arc<AtomicU64>,
+    secrets: &HashMap<String, String>,
 ) -> Result<()> {
     if !dangerously_skip_permissions {
         write_hook_settings().context("failed to write hook settings")?;
@@ -89,6 +91,9 @@ pub async fn spawn_and_process(
         cmd.cwd(dir);
     }
     cmd.env("NAVETTED_SESSION_ID", session_id);
+    for (name, value) in secrets {
+        cmd.env(name, value);
+    }
 
     let mut child = pair
         .slave

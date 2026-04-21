@@ -17,10 +17,11 @@ import {
 import { DEFAULT_WHISPER_ENDPOINT, STT_ENGINE_KEY, STT_RECOGNIZER_LABEL_KEY, STT_RECOGNIZER_PKG_KEY, WHISPER_API_KEY_STORAGE, WHISPER_ENDPOINT_KEY } from '../components/VoiceButton';
 import { PromptLibraryScreen } from './PromptLibraryScreen';
 import { ScheduleScreen } from './ScheduleScreen';
+import { SecretsScreen } from './SecretsScreen';
 import { SessionHistoryScreen } from './SessionHistoryScreen';
 import { SkillsScreen } from './SkillsScreen';
 import type { SkillInfo } from '../hooks/useNavettedWS';
-import type { EventFrame, PastSessionInfo, SavedPrompt, ScheduledSessionInfo } from '../types';
+import type { EventFrame, PastSessionInfo, SavedPrompt, ScheduledSessionInfo, SecretEntry } from '../types';
 
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
 
@@ -53,9 +54,13 @@ interface SettingsScreenProps {
   onUpdatePrompt: (id: string, title: string, body: string, tags?: string[]) => void;
   onDeletePrompt: (id: string) => void;
   onUsePrompt: (body: string) => void;
+  secrets: SecretEntry[];
+  onListSecrets: () => void;
+  onSetSecret: (name: string, value: string) => void;
+  onDeleteSecret: (name: string) => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [testFeedback, setTestFeedback] = useState<'idle' | 'sent' | 'failed'>('idle');
 
@@ -76,6 +81,7 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
   const [historyVisible, setHistoryVisible] = useState(false);
   const [scheduleVisible, setScheduleVisible] = useState(false);
   const [promptLibraryVisible, setPromptLibraryVisible] = useState(false);
+  const [secretsVisible, setSecretsVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -161,6 +167,14 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
         skills={skills}
         onRefresh={onListSkills}
         onRun={onRunSkill}
+      />
+      <SecretsScreen
+        visible={secretsVisible}
+        onClose={() => setSecretsVisible(false)}
+        secrets={secrets}
+        onRefresh={onListSecrets}
+        onSave={onSetSecret}
+        onDelete={onDeleteSecret}
       />
       <ScheduleScreen
         visible={scheduleVisible}
@@ -281,6 +295,18 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
           <Pressable style={styles.promptLibBtn} onPress={() => setPromptLibraryVisible(true)}>
             <Text style={styles.promptLibBtnText}>
               Browse Prompts ({savedPrompts.length}) →
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Secrets Vault</Text>
+          <Text style={styles.sectionSubtitle}>
+            Store encrypted secrets (API keys, tokens) and inject them as environment variables into CLI sessions.
+          </Text>
+          <Pressable style={styles.secretsBtn} onPress={() => setSecretsVisible(true)}>
+            <Text style={styles.secretsBtnText}>
+              Manage Secrets ({secrets.length}) →
             </Text>
           </Pressable>
         </View>
@@ -547,6 +573,20 @@ const styles = StyleSheet.create({
   },
   promptLibBtnText: {
     color: '#fbbf24',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  secretsBtn: {
+    backgroundColor: '#1a0d1a',
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#4a1a4a',
+    marginTop: 4,
+  },
+  secretsBtnText: {
+    color: '#c084fc',
     fontSize: 15,
     fontWeight: '700',
   },

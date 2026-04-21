@@ -145,3 +145,10 @@ export interface SavedPrompt {
   created_at: number;
   updated_at: number;
 }
+
+export interface SecretEntry {
+  name: string;
+  masked: string;
+  created_at: number;
+  updated_at: number;
+}
