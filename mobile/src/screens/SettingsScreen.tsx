@@ -58,9 +58,10 @@ interface SettingsScreenProps {
   onListSecrets: () => void;
   onSetSecret: (name: string, value: string) => void;
   onDeleteSecret: (name: string) => void;
+  onBrowseFiles?: () => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, onBrowseFiles }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [testFeedback, setTestFeedback] = useState<'idle' | 'sent' | 'failed'>('idle');
 
@@ -308,6 +309,16 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
             <Text style={styles.secretsBtnText}>
               Manage Secrets ({secrets.length}) →
             </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Project Files</Text>
+          <Text style={styles.sectionSubtitle}>
+            Browse the project file tree and edit CLAUDE.md config files from your phone.
+          </Text>
+          <Pressable style={styles.historyBtn} onPress={onBrowseFiles}>
+            <Text style={styles.historyBtnText}>Browse Files →</Text>
           </Pressable>
         </View>
 

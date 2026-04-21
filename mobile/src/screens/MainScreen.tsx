@@ -17,8 +17,9 @@ import { DirPicker } from '../components/DirPicker';
 import { EventFeed } from '../components/EventFeed';
 import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
+import { FileBrowserScreen } from './FileBrowserScreen';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DirListingEvent, EventFrame, PastSessionInfo, PendingApproval, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
+import { ConnectionStatus, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, PastSessionInfo, PendingApproval, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useNavettedWS';
 
 interface MainScreenProps {
@@ -45,6 +46,8 @@ interface MainScreenProps {
   onSendTestNotification: () => void;
   testNotificationResult: 'idle' | 'sent' | 'failed';
   listDir: (path: string, cb: (ev: DirListingEvent) => void) => void;
+  readFile: (path: string, cb: (ev: FileContentEvent) => void) => void;
+  writeFile: (path: string, content: string, cb: (ev: FileWriteResultEvent) => void) => void;
   skills: SkillInfo[];
   onListSkills: () => void;
   pastSessions: PastSessionInfo[];
@@ -105,6 +108,8 @@ export function MainScreen({
   onSendTestNotification,
   testNotificationResult,
   listDir,
+  readFile,
+  writeFile,
   skills,
   onListSkills,
   pastSessions,
@@ -141,6 +146,7 @@ export function MainScreen({
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [filesVisible, setFilesVisible] = useState(false);
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
   const [skipPermsConfirming, setSkipPermsConfirming] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -238,6 +244,14 @@ export function MainScreen({
 
   return (
     <View style={styles.container}>
+      <FileBrowserScreen
+        visible={filesVisible}
+        onClose={() => setFilesVisible(false)}
+        listDir={listDir}
+        readFile={readFile}
+        writeFile={writeFile}
+        initialPath={workDir || '~'}
+      />
       <SettingsScreen
         visible={settingsVisible}
         onClose={() => setSettingsVisible(false)}
@@ -266,6 +280,7 @@ export function MainScreen({
         onListSecrets={onListSecrets}
         onSetSecret={onSetSecret}
         onDeleteSecret={onDeleteSecret}
+        onBrowseFiles={() => { setSettingsVisible(false); setFilesVisible(true); }}
       />
 
       {/* Top bar */}
@@ -292,6 +307,9 @@ export function MainScreen({
           )}
         </View>
         <View style={styles.topBarActions}>
+          <Pressable onPress={() => setFilesVisible(true)} hitSlop={10} style={styles.gearBtn}>
+            <Text style={styles.gearText}>{'\u{1F4C1}'}</Text>
+          </Pressable>
           <Pressable onPress={() => setSettingsVisible(true)} hitSlop={10} style={styles.gearBtn}>
             <Text style={styles.gearText}>⚙</Text>
           </Pressable>

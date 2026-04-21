@@ -103,7 +103,7 @@ sprint. Listed here so they're visible alongside formal work.
 | `smart-approval-ux` | Mobile | ~~P1~~ **shipped** | Batch approve/deny, quick-response button detection, per-hunk diff accept |
 | `secrets-management` | Daemon + Mobile | ~~P1~~ **shipped** | Encrypted SQLite vault (AES-256-GCM) + per-session env injection |
 | `prompt-library-templates` | Daemon + Mobile | ~~P2~~ **shipped** | Saved-prompt CRUD + PromptLibraryScreen |
-| `file-browser-config-editor` | Daemon + Mobile | P2 | `read_file`/`write_file` WS scoped to `.claude/` + FileBrowserScreen |
+| `file-browser-config-editor` | Daemon + Mobile | ~~P2~~ **shipped** | `read_file`/`write_file` WS scoped to `.claude/` + FileBrowserScreen |
 | `session-search-kanban-indicators` | Daemon + Mobile | P2 | FTS5 over events, unread badges, kanban view |
 | `desktop-stt-offload` | Daemon + Mobile | P3 | GPU-accelerated whisper.cpp on daemon; phone streams audio |
 

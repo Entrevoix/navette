@@ -152,3 +152,18 @@ export interface SecretEntry {
   created_at: number;
   updated_at: number;
 }
+
+export interface FileContentEvent {
+  type: 'file_content';
+  path: string;
+  content?: string;
+  size?: number;
+  error?: string;
+}
+
+export interface FileWriteResultEvent {
+  type: 'file_written';
+  path: string;
+  ok: boolean;
+  error?: string;
+}
