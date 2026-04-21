@@ -99,7 +99,7 @@ sprint. Listed here so they're visible alongside formal work.
 
 | Plan | Area | Priority | One-line scope |
 |---|---|---|---|
-| `session-ux-improvements` | Mobile | P1 | 5-min lock grace period, fresh-connect view, directory picker wired up |
+| `session-ux-improvements` | Mobile | ~~P1~~ **shipped** | 5-min lock grace period, fresh-connect view with Show History toggle, server-side directory picker with breadcrumb nav |
 | `smart-approval-ux` | Mobile | P1 | Batch approve/deny, quick-response button detection, per-hunk diff accept |
 | `secrets-management` | Daemon + Mobile | P1 | Encrypted SQLite vault (AES-256-GCM) + per-session env injection |
 | `prompt-library-templates` | Daemon + Mobile | P2 | Saved-prompt CRUD + PromptLibraryScreen |
