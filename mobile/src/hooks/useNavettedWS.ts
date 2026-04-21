@@ -42,6 +42,7 @@ interface UseNavettedWSResult {
   connect: (config: ServerConfig) => void;
   disconnect: () => void;
   decide: (tool_use_id: string, allow: boolean) => void;
+  batchDecide: (allow: boolean) => void;
   run: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean) => void;
   kill: (sessionId?: string) => void;
   sendInput: (text: string, sessionId?: string) => void;
@@ -115,6 +116,10 @@ export function useNavettedWS(): UseNavettedWSResult {
       prev.filter((p: PendingApproval) => p.tool_use_id !== tool_use_id)
     );
   }, []);
+
+  const batchDecide = useCallback((allow: boolean) => {
+    pendingApprovals.forEach(a => decide(a.tool_use_id, allow));
+  }, [pendingApprovals, decide]);
 
   const run = useCallback((prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -627,6 +632,7 @@ export function useNavettedWS(): UseNavettedWSResult {
     connect,
     disconnect,
     decide,
+    batchDecide,
     run,
     kill,
     sendInput,
