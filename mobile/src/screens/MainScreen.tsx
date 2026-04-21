@@ -36,6 +36,7 @@ interface MainScreenProps {
   reconnecting: boolean;
   reconnectCount: number;
   onDecide: (tool_use_id: string, allow: boolean) => void;
+  onBatchDecide: (allow: boolean) => void;
   onDisconnect: () => void;
   onRun: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean) => void;
   onKill: (sessionId?: string) => void;
@@ -95,6 +96,7 @@ export function MainScreen({
   reconnecting,
   reconnectCount,
   onDecide,
+  onBatchDecide,
   onDisconnect,
   onRun,
   onKill,
@@ -354,6 +356,7 @@ export function MainScreen({
         events={events}
         pendingApprovals={pendingApprovals}
         onDecide={onDecide}
+        onBatchDecide={onBatchDecide}
         viewStartSeq={viewStartSeq}
         activeSessionId={activeSessionId}
         sessionRunning={isRunning}

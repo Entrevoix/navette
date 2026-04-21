@@ -11,6 +11,8 @@ import {
   View,
 } from 'react-native';
 import { ApprovalCard } from './ApprovalCard';
+import { BatchApprovalBar } from './BatchApprovalBar';
+import { QuickResponseButtons } from './QuickResponseButtons';
 import { ToolCallRow } from './EventLog';
 import {
   AssistantEvent,
@@ -24,6 +26,7 @@ interface ChatViewProps {
   events: EventFrame[];
   pendingApprovals: PendingApproval[];
   onDecide: (tool_use_id: string, allow: boolean) => void;
+  onBatchDecide?: (allow: boolean) => void;
   viewStartSeq: number;
   activeSessionId?: string | null;
   sessionRunning?: boolean;
@@ -65,7 +68,7 @@ function PendingToolCallRow({
   );
 }
 
-export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq, activeSessionId, sessionRunning, onSendInput }: ChatViewProps) {
+export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, viewStartSeq, activeSessionId, sessionRunning, onSendInput }: ChatViewProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [inputText, setInputText] = useState('');
@@ -153,6 +156,35 @@ export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq, act
     }
   }
 
+  // Track last assistant text for quick response detection
+  let lastAssistantText = '';
+  for (let fi = visibleEvents.length - 1; fi >= 0; fi--) {
+    const ev = visibleEvents[fi].event;
+    if (ev.type === 'assistant') {
+      const ae = ev as AssistantEvent;
+      for (let ci = ae.message.content.length - 1; ci >= 0; ci--) {
+        const block = ae.message.content[ci];
+        if (block.type === 'text' && (block as TextBlock).text.trim()) {
+          lastAssistantText = (block as TextBlock).text;
+          break;
+        }
+      }
+      if (lastAssistantText) break;
+    }
+  }
+
+  const showQuickResponse = !!onSendInput && !!lastAssistantText && !pendingApprovals.length;
+
+  if (showQuickResponse) {
+    items.push(
+      <QuickResponseButtons
+        key="quick-response"
+        text={lastAssistantText}
+        onSendInput={onSendInput!}
+      />
+    );
+  }
+
   const hasHistory = sessionEvents.some(f => f.seq <= viewStartSeq);
   const hasPendingApprovals = pendingApprovals.length > 0;
   const showInputBar = sessionRunning && !!activeSessionId && !!onSendInput;
@@ -214,6 +246,12 @@ export function ChatView({ events, pendingApprovals, onDecide, viewStartSeq, act
 
   return (
     <View style={styles.chatWrapper}>
+      {onBatchDecide && (
+        <BatchApprovalBar
+          pendingApprovals={pendingApprovals}
+          onBatchDecide={onBatchDecide}
+        />
+      )}
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
