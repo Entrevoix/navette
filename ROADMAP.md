@@ -101,8 +101,8 @@ sprint. Listed here so they're visible alongside formal work.
 |---|---|---|---|
 | `session-ux-improvements` | Mobile | ~~P1~~ **shipped** | 5-min lock grace period, fresh-connect view with Show History toggle, server-side directory picker with breadcrumb nav |
 | `smart-approval-ux` | Mobile | P1 | Batch approve/deny, quick-response button detection, per-hunk diff accept |
-| `secrets-management` | Daemon + Mobile | P1 | Encrypted SQLite vault (AES-256-GCM) + per-session env injection |
-| `prompt-library-templates` | Daemon + Mobile | P2 | Saved-prompt CRUD + PromptLibraryScreen |
+| `secrets-management` | Daemon + Mobile | ~~P1~~ **shipped** | Encrypted SQLite vault (AES-256-GCM) + per-session env injection |
+| `prompt-library-templates` | Daemon + Mobile | ~~P2~~ **shipped** | Saved-prompt CRUD + PromptLibraryScreen |
 | `file-browser-config-editor` | Daemon + Mobile | P2 | `read_file`/`write_file` WS scoped to `.claude/` + FileBrowserScreen |
 | `session-search-kanban-indicators` | Daemon + Mobile | P2 | FTS5 over events, unread badges, kanban view |
 | `desktop-stt-offload` | Daemon + Mobile | P3 | GPU-accelerated whisper.cpp on daemon; phone streams audio |
@@ -173,6 +173,8 @@ Features the daemon supports that mobile does not yet expose:
 | Voice input (on-device STT) | ~~P3~~ **shipped** | Tap-to-toggle mic via Google on-device Soda recognizer; auto-restarts on silence gaps; text accumulates across sessions; Android 16 Soda workarounds (EXTRA_LANGUAGE_MODEL=web_search, 500ms restart delay) |
 | Whisper API fallback for STT | ~~P3~~ **shipped** | VoiceButton tap-to-toggle records via expo-av, POSTs to Whisper endpoint; Settings → Voice Input has engine toggle + API key/endpoint config |
 | Android `.aab` release build + signing | ~~P3~~ **shipped** | Expo config plugin for release signing + ProGuard/R8; `npm run build:release` produces signed .aab |
+| Prompt library templates | ~~P2~~ **shipped** | Saved-prompt CRUD with tags; PromptLibraryScreen with search/filter; daemon-side SQLite persistence |
+| Secrets vault | ~~P1~~ **shipped** | AES-256-GCM encrypted secrets in SQLite; HKDF key derivation from auth token; write-only WS API; per-session env injection; SecretsScreen CRUD + inject toggle |
 | Upgrade to Expo 54 / RN 0.81.5+ | P2 | Permanent fix for Android 16 (Sept 2025 patch) permission-hang regression — currently patched via JS check-first workaround in VoiceButton.tsx (facebook/react-native#53898 lands in 0.81.5). Also clears 16KB page-size + ErrorUtils tech debt. |
 | iOS App Store submission | P3 | Requires Apple Developer account and TestFlight distribution |
 
