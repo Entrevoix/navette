@@ -12,7 +12,8 @@
     "ios": {
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "navette uses speech recognition to transcribe voice prompts.",
-        "NSMicrophoneUsageDescription": "navette uses the microphone to capture voice prompts."
+        "NSMicrophoneUsageDescription": "navette uses the microphone to capture voice prompts.",
+        "NSCameraUsageDescription": "navette uses the camera to scan QR pairing codes."
       }
     },
     "android": {
@@ -22,11 +23,18 @@
       },
       "package": "inc.entrevoix.navette",
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
       ]
     },
     "plugins": [
       "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "navette uses the camera to scan QR pairing codes."
+        }
+      ],
       [
         "expo-speech-recognition",
         {

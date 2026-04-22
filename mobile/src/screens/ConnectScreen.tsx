@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useState } from 'react';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -51,6 +52,10 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
   const [tsPeerVisible, setTsPeerVisible] = useState(false);
   const [tsLoading, setTsLoading] = useState(false);
   const [tsError, setTsError] = useState('');
+  const [qrVisible, setQrVisible] = useState(false);
+  const [qrError, setQrError] = useState('');
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const scannedRef = useRef(false);
 
   useEffect(() => {
     AsyncStorage.getItem(TS_API_KEY_STORAGE).then((k: string | null) => { if (k) setTsApiKey(k); });
@@ -133,6 +138,50 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
     }
   };
 
+  const openQrScanner = async () => {
+    setQrError('');
+    scannedRef.current = false;
+    if (!cameraPermission?.granted) {
+      const result = await requestCameraPermission();
+      if (!result.granted) {
+        setQrError('Camera permission is required to scan QR codes.');
+        return;
+      }
+    }
+    setQrVisible(true);
+  };
+
+  const handleBarcodeScan = ({ data }: { data: string }) => {
+    if (scannedRef.current) return;
+    scannedRef.current = true;
+
+    try {
+      if (!data.startsWith('navette://')) {
+        setQrError('Not a navette QR code.');
+        setQrVisible(false);
+        return;
+      }
+      const encoded = data.slice('navette://'.length);
+      const decoded = atob(encoded);
+      const payload = JSON.parse(decoded) as { host?: string; port?: string; token?: string };
+      if (!payload.host || !payload.port || !payload.token) {
+        setQrError('QR code is missing connection details.');
+        setQrVisible(false);
+        return;
+      }
+      setHost(payload.host);
+      setPort(payload.port);
+      setToken(payload.token);
+      setName(`QR: ${payload.host}`);
+      setSelectedId(null);
+      setQrVisible(false);
+      setQrError('');
+    } catch {
+      setQrError('Could not decode QR code.');
+      setQrVisible(false);
+    }
+  };
+
   const browsePeers = async () => {
     setTsLoading(true);
     setTsError('');
@@ -184,6 +233,13 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
         <View style={styles.card}>
           <Text style={styles.title}>navette</Text>
           <Text style={styles.subtitle}>remote tool approval</Text>
+
+          <Pressable style={styles.qrBtn} onPress={openQrScanner}>
+            <Text style={styles.qrBtnText}>Scan QR to Connect</Text>
+          </Pressable>
+          {qrError.length > 0 && (
+            <Text style={styles.qrError}>{qrError}</Text>
+          )}
 
           {status === 'error' && (
             <View style={styles.errorBanner}>
@@ -329,6 +385,23 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
           </View>
         </Pressable>
       </Modal>
+
+      <Modal visible={qrVisible} animationType="slide" onRequestClose={() => setQrVisible(false)}>
+        <View style={styles.qrModal}>
+          <CameraView
+            style={styles.qrCamera}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            onBarcodeScanned={handleBarcodeScan}
+          />
+          <View style={styles.qrOverlay}>
+            <Text style={styles.qrHint}>Point camera at the QR code from `navetted --pair`</Text>
+            <Pressable style={styles.qrCloseBtn} onPress={() => setQrVisible(false)}>
+              <Text style={styles.qrCloseBtnText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -425,4 +498,24 @@ const styles = StyleSheet.create({
   tsPeerName: { color: '#f0f0f0', fontSize: 15, fontWeight: '500' },
   tsPeerIp: { color: '#5b8dd9', fontSize: 13, fontFamily: 'Menlo' },
   tsPeerEmpty: { color: '#555', fontSize: 14, padding: 16, textAlign: 'center' },
+
+  qrBtn: {
+    backgroundColor: '#0d1520', borderRadius: 10, padding: 14,
+    alignItems: 'center', borderWidth: 1, borderColor: '#1e3a5f', marginBottom: 12,
+  },
+  qrBtnText: { color: '#93c5fd', fontWeight: '700', fontSize: 15 },
+  qrError: { color: '#f87171', fontSize: 12, marginBottom: 8 },
+  qrModal: { flex: 1, backgroundColor: '#000' },
+  qrCamera: { flex: 1 },
+  qrOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    paddingBottom: 48, paddingTop: 20, alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  qrHint: { color: '#ccc', fontSize: 14, marginBottom: 16, textAlign: 'center', paddingHorizontal: 24 },
+  qrCloseBtn: {
+    paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10,
+    backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a',
+  },
+  qrCloseBtnText: { color: '#f0f0f0', fontSize: 15, fontWeight: '600' },
 });

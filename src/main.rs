@@ -16,7 +16,8 @@ use std::{
     },
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use base64::Engine as _;
 use rusqlite::Connection;
 use tokio::sync::{broadcast, oneshot, Mutex};
 use tokio::time::Duration;
@@ -60,8 +61,40 @@ pub struct RunRequest {
     pub inject_secrets: bool,
 }
 
+fn handle_pair() -> Result<()> {
+    let cfg = config::load_or_create()?;
+    let local_ip = local_ip_address::local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
+
+    let payload = serde_json::json!({
+        "host": local_ip,
+        "port": cfg.ws_port.to_string(),
+        "token": cfg.token,
+    });
+    let json = serde_json::to_string(&payload).context("failed to serialize pairing payload")?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&json);
+    let uri = format!("navette://{encoded}");
+
+    let qr = qrcode::QrCode::new(uri.as_bytes()).context("failed to generate QR code")?;
+    let rendered = qr
+        .render::<char>()
+        .quiet_zone(true)
+        .module_dimensions(2, 1)
+        .build();
+
+    println!("\n{rendered}");
+    println!("  Scan with the navette app to connect.");
+    println!("  Host: {local_ip}  Port: {}\n", cfg.ws_port);
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::args().any(|a| a == "--pair") {
+        return handle_pair();
+    }
+
     tracing_subscriber::fmt::init();
 
     let cfg = Arc::new(config::load_or_create()?);
