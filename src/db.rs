@@ -58,6 +58,13 @@ pub fn open() -> Result<Connection> {
              nonce      BLOB    NOT NULL,
              created_at REAL    NOT NULL,
              updated_at REAL    NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS devices (
+             device_id  TEXT    PRIMARY KEY,
+             name       TEXT    NOT NULL,
+             paired_at  REAL    NOT NULL,
+             last_seen  REAL    NOT NULL,
+             revoked    INTEGER NOT NULL DEFAULT 0
          );",
     )
     .context("failed to initialize schema")?;
@@ -458,6 +465,69 @@ pub fn delete_secret(conn: &Connection, name: &str) -> Result<()> {
     Ok(())
 }
 
+// ── Device management ────────────────────────────────────────────────────────
+
+pub fn upsert_device(conn: &Connection, device_id: &str, name: &str, now: f64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO devices (device_id, name, paired_at, last_seen)
+         VALUES (?1, ?2, ?3, ?3)
+         ON CONFLICT(device_id) DO UPDATE SET last_seen = excluded.last_seen",
+        rusqlite::params![device_id, name, now],
+    )
+    .context("upsert_device failed")?;
+    Ok(())
+}
+
+pub fn is_device_revoked(conn: &Connection, device_id: &str) -> Result<bool> {
+    match conn.query_row(
+        "SELECT revoked FROM devices WHERE device_id = ?1",
+        rusqlite::params![device_id],
+        |row| row.get::<_, i32>(0),
+    ) {
+        Ok(v) => Ok(v != 0),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+        Err(e) => Err(e).context("is_device_revoked failed"),
+    }
+}
+
+pub fn list_devices(conn: &Connection) -> Result<Vec<serde_json::Value>> {
+    let mut stmt = conn
+        .prepare("SELECT device_id, name, paired_at, last_seen, revoked FROM devices ORDER BY last_seen DESC")
+        .context("prepare list_devices")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(serde_json::json!({
+                "device_id": row.get::<_, String>(0)?,
+                "name": row.get::<_, String>(1)?,
+                "paired_at": row.get::<_, f64>(2)?,
+                "last_seen": row.get::<_, f64>(3)?,
+                "revoked": row.get::<_, i32>(4)? != 0,
+            }))
+        })
+        .context("query list_devices")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect list_devices")?;
+    Ok(rows)
+}
+
+pub fn set_device_revoked(conn: &Connection, device_id: &str, revoked: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE devices SET revoked = ?1 WHERE device_id = ?2",
+        rusqlite::params![revoked as i32, device_id],
+    )
+    .context("set_device_revoked failed")?;
+    Ok(())
+}
+
+pub fn rename_device(conn: &Connection, device_id: &str, new_name: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE devices SET name = ?1 WHERE device_id = ?2",
+        rusqlite::params![new_name, device_id],
+    )
+    .context("rename_device failed")?;
+    Ok(())
+}
+
 /// Enforce per-session event cap: drop oldest events beyond 10,000.
 pub fn enforce_retention(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -521,6 +591,13 @@ mod tests {
                  nonce      BLOB    NOT NULL,
                  created_at REAL    NOT NULL,
                  updated_at REAL    NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS devices (
+                 device_id  TEXT    PRIMARY KEY,
+                 name       TEXT    NOT NULL,
+                 paired_at  REAL    NOT NULL,
+                 last_seen  REAL    NOT NULL,
+                 revoked    INTEGER NOT NULL DEFAULT 0
              );",
         )
         .unwrap();
@@ -749,5 +826,68 @@ mod tests {
 
         let (encrypted, nonce) = encrypt_secret(&key1, b"secret-data").unwrap();
         assert!(decrypt_secret(&key2, &encrypted, &nonce).is_err());
+    }
+
+    #[test]
+    fn upsert_device_creates_and_updates() {
+        let conn = in_memory_db();
+        upsert_device(&conn, "dev-1", "My iPhone", 1000.0).unwrap();
+
+        let devices = list_devices(&conn).unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0]["device_id"], "dev-1");
+        assert_eq!(devices[0]["name"], "My iPhone");
+        assert_eq!(devices[0]["paired_at"], 1000.0);
+        assert_eq!(devices[0]["last_seen"], 1000.0);
+
+        upsert_device(&conn, "dev-1", "My iPhone", 2000.0).unwrap();
+
+        let devices = list_devices(&conn).unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0]["paired_at"], 1000.0);
+        assert_eq!(devices[0]["last_seen"], 2000.0);
+    }
+
+    #[test]
+    fn revoke_device_blocks_lookup() {
+        let conn = in_memory_db();
+        upsert_device(&conn, "dev-r", "Revokable", 1000.0).unwrap();
+        assert!(!is_device_revoked(&conn, "dev-r").unwrap());
+
+        set_device_revoked(&conn, "dev-r", true).unwrap();
+        assert!(is_device_revoked(&conn, "dev-r").unwrap());
+
+        set_device_revoked(&conn, "dev-r", false).unwrap();
+        assert!(!is_device_revoked(&conn, "dev-r").unwrap());
+    }
+
+    #[test]
+    fn rename_device_works() {
+        let conn = in_memory_db();
+        upsert_device(&conn, "dev-n", "Old Name", 1000.0).unwrap();
+        rename_device(&conn, "dev-n", "New Name").unwrap();
+
+        let devices = list_devices(&conn).unwrap();
+        assert_eq!(devices[0]["name"], "New Name");
+    }
+
+    #[test]
+    fn list_devices_returns_all() {
+        let conn = in_memory_db();
+        upsert_device(&conn, "d1", "Phone", 3000.0).unwrap();
+        upsert_device(&conn, "d2", "Tablet", 2000.0).unwrap();
+        upsert_device(&conn, "d3", "Laptop", 1000.0).unwrap();
+
+        let devices = list_devices(&conn).unwrap();
+        assert_eq!(devices.len(), 3);
+        assert_eq!(devices[0]["device_id"], "d1");
+        assert_eq!(devices[1]["device_id"], "d2");
+        assert_eq!(devices[2]["device_id"], "d3");
+    }
+
+    #[test]
+    fn unknown_device_not_revoked() {
+        let conn = in_memory_db();
+        assert!(!is_device_revoked(&conn, "nonexistent").unwrap());
     }
 }

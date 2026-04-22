@@ -17,11 +17,12 @@ import {
 import { DEFAULT_WHISPER_ENDPOINT, STT_ENGINE_KEY, STT_RECOGNIZER_LABEL_KEY, STT_RECOGNIZER_PKG_KEY, WHISPER_API_KEY_STORAGE, WHISPER_ENDPOINT_KEY } from '../components/VoiceButton';
 import { PromptLibraryScreen } from './PromptLibraryScreen';
 import { ScheduleScreen } from './ScheduleScreen';
+import { DevicesScreen } from './DevicesScreen';
 import { SecretsScreen } from './SecretsScreen';
 import { SessionHistoryScreen } from './SessionHistoryScreen';
 import { SkillsScreen } from './SkillsScreen';
 import type { SkillInfo } from '../hooks/useNavettedWS';
-import type { EventFrame, PastSessionInfo, SavedPrompt, ScheduledSessionInfo, SecretEntry } from '../types';
+import type { DeviceEntry, EventFrame, PastSessionInfo, SavedPrompt, ScheduledSessionInfo, SecretEntry } from '../types';
 
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
 
@@ -58,10 +59,14 @@ interface SettingsScreenProps {
   onListSecrets: () => void;
   onSetSecret: (name: string, value: string) => void;
   onDeleteSecret: (name: string) => void;
+  devices: DeviceEntry[];
+  onListDevices: () => void;
+  onRevokeDevice: (deviceId: string) => void;
+  onRenameDevice: (deviceId: string, name: string) => void;
   onBrowseFiles?: () => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, onBrowseFiles }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, devices, onListDevices, onRevokeDevice, onRenameDevice, onBrowseFiles }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [testFeedback, setTestFeedback] = useState<'idle' | 'sent' | 'failed'>('idle');
 
@@ -83,6 +88,7 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
   const [scheduleVisible, setScheduleVisible] = useState(false);
   const [promptLibraryVisible, setPromptLibraryVisible] = useState(false);
   const [secretsVisible, setSecretsVisible] = useState(false);
+  const [devicesVisible, setDevicesVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -176,6 +182,14 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
         onRefresh={onListSecrets}
         onSave={onSetSecret}
         onDelete={onDeleteSecret}
+      />
+      <DevicesScreen
+        visible={devicesVisible}
+        onClose={() => setDevicesVisible(false)}
+        devices={devices}
+        onRefresh={onListDevices}
+        onRevoke={onRevokeDevice}
+        onRename={onRenameDevice}
       />
       <ScheduleScreen
         visible={scheduleVisible}
@@ -308,6 +322,18 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
           <Pressable style={styles.secretsBtn} onPress={() => setSecretsVisible(true)}>
             <Text style={styles.secretsBtnText}>
               Manage Secrets ({secrets.length}) →
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Paired Devices</Text>
+          <Text style={styles.sectionSubtitle}>
+            See which devices are connected and revoke access for any you don't recognize.
+          </Text>
+          <Pressable style={styles.secretsBtn} onPress={() => setDevicesVisible(true)}>
+            <Text style={styles.secretsBtnText}>
+              Manage Devices ({devices.length}) →
             </Text>
           </Pressable>
         </View>

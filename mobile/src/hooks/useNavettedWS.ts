@@ -3,7 +3,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, FileContentEvent, FileWriteResultEvent } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, DeviceEntry, FileContentEvent, FileWriteResultEvent } from '../types';
 
 const LAST_SEQ_KEY = 'navette_last_seq';
 
@@ -65,6 +65,10 @@ interface UseNavettedWSResult {
   listSecrets: () => void;
   setSecret: (name: string, value: string) => void;
   deleteSecret: (name: string) => void;
+  devices: DeviceEntry[];
+  listDevices: () => void;
+  revokeDevice: (deviceId: string) => void;
+  renameDevice: (deviceId: string, name: string) => void;
 }
 
 export function useNavettedWS(): UseNavettedWSResult {
@@ -82,6 +86,7 @@ export function useNavettedWS(): UseNavettedWSResult {
   const [sessionHistory, setSessionHistory] = useState<Record<string, EventFrame[]>>({});
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [secrets, setSecrets] = useState<SecretEntry[]>([]);
+  const [devices, setDevices] = useState<DeviceEntry[]>([]);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionInfo[]>([]);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
@@ -272,6 +277,24 @@ export function useNavettedWS(): UseNavettedWSResult {
   const deleteSecret = useCallback((name: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'delete_secret', name }));
+    }
+  }, []);
+
+  const listDevices = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_devices' }));
+    }
+  }, []);
+
+  const revokeDevice = useCallback((deviceId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'revoke_device', device_id: deviceId }));
+    }
+  }, []);
+
+  const renameDevice = useCallback((deviceId: string, name: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'rename_device', device_id: deviceId, name }));
     }
   }, []);
 
@@ -544,6 +567,18 @@ export function useNavettedWS(): UseNavettedWSResult {
         return;
       }
 
+      if (msgType === 'devices_list') {
+        setDevices((msg['devices'] as DeviceEntry[] | undefined) ?? []);
+        return;
+      }
+
+      if (msgType === 'device_revoked' || msgType === 'device_renamed') {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'list_devices' }));
+        }
+        return;
+      }
+
       if (msgType === 'scheduled_sessions_list') {
         setScheduledSessions((msg['sessions'] as ScheduledSessionInfo[] | undefined) ?? []);
         return;
@@ -679,5 +714,9 @@ export function useNavettedWS(): UseNavettedWSResult {
     listSecrets,
     setSecret,
     deleteSecret,
+    devices,
+    listDevices,
+    revokeDevice,
+    renameDevice,
   };
 }

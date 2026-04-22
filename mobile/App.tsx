@@ -18,7 +18,7 @@ import { ErrorBoundary } from './src/components/ErrorBoundary';
 const LAST_CONFIG_KEY = 'navette_last_config';
 
 export default function App() {
-  const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, testNotificationResult, reconnecting, reconnectCount, connect, disconnect, decide, batchDecide, run, kill, sendInput, getNotifyConfig, sendTestNotification, listDir, readFile, writeFile, skills, listSkills, pastSessions, sessionHistory, listPastSessions, getSessionHistory, scheduledSessions, scheduleSession, cancelScheduledSession, listScheduledSessions, savedPrompts, listPrompts, savePrompt, updatePrompt, deletePrompt, secrets, listSecrets, setSecret, deleteSecret } = useNavettedWS();
+  const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, testNotificationResult, reconnecting, reconnectCount, connect, disconnect, decide, batchDecide, run, kill, sendInput, getNotifyConfig, sendTestNotification, listDir, readFile, writeFile, skills, listSkills, pastSessions, sessionHistory, listPastSessions, getSessionHistory, scheduledSessions, scheduleSession, cancelScheduledSession, listScheduledSessions, savedPrompts, listPrompts, savePrompt, updatePrompt, deletePrompt, secrets, listSecrets, setSecret, deleteSecret, devices, listDevices, revokeDevice, renameDevice } = useNavettedWS();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [isLocked, setIsLocked] = useState(false);
 
@@ -150,6 +150,10 @@ export default function App() {
               onListSecrets={listSecrets}
               onSetSecret={setSecret}
               onDeleteSecret={deleteSecret}
+              devices={devices}
+              onListDevices={listDevices}
+              onRevokeDevice={revokeDevice}
+              onRenameDevice={renameDevice}
             />
           ) : (
             <ConnectScreen

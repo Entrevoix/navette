@@ -116,6 +116,25 @@ async fn handle_ws(
         _ => return Ok(()),
     };
 
+    // Check device revocation and upsert on successful auth
+    let device_revoked = {
+        let conn = db.lock().unwrap();
+        db::is_device_revoked(&conn, &client_id).unwrap_or(false)
+    };
+    if device_revoked {
+        let _ = sink.send(rejected("device revoked")).await;
+        tracing::warn!(%client_id, "rejected: device revoked");
+        return Ok(());
+    }
+    {
+        let conn = db.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+        let _ = db::upsert_device(&conn, &client_id, &client_id, now);
+    }
+
     let head_seq = {
         let conn = db.lock().unwrap();
         db::head_seq(&conn).unwrap_or(0)
@@ -835,6 +854,50 @@ async fn handle_ws(
                                 let reply = serde_json::to_string(&serde_json::json!({
                                     "type": "secret_deleted",
                                     "name": name,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "list_devices" {
+                                let devices = {
+                                    let conn = db.lock().unwrap();
+                                    db::list_devices(&conn).unwrap_or_default()
+                                };
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "devices_list",
+                                    "devices": devices,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "revoke_device" {
+                                let device_id = v.get("device_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::set_device_revoked(&conn, &device_id, true);
+                                }
+                                tracing::info!(%client_id, %device_id, "device revoked");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "device_revoked",
+                                    "device_id": device_id,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "rename_device" {
+                                let device_id = v.get("device_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::rename_device(&conn, &device_id, &name);
+                                }
+                                tracing::info!(%client_id, %device_id, new_name = %name, "device renamed");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "device_renamed",
+                                    "device_id": device_id,
                                 }))
                                 .unwrap_or_default();
                                 if sink.send(Message::Text(reply)).await.is_err() {

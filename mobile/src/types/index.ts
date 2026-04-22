@@ -153,6 +153,14 @@ export interface SecretEntry {
   updated_at: number;
 }
 
+export interface DeviceEntry {
+  device_id: string;
+  name: string;
+  paired_at: number;
+  last_seen: number;
+  revoked: boolean;
+}
+
 export interface FileContentEvent {
   type: 'file_content';
   path: string;
