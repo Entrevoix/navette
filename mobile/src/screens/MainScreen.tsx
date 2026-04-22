@@ -19,7 +19,7 @@ import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
 import { FileBrowserScreen } from './FileBrowserScreen';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, PastSessionInfo, PendingApproval, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
+import { ConnectionStatus, DeviceEntry, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, PastSessionInfo, PendingApproval, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useNavettedWS';
 
 interface MainScreenProps {
@@ -67,6 +67,10 @@ interface MainScreenProps {
   onListSecrets: () => void;
   onSetSecret: (name: string, value: string) => void;
   onDeleteSecret: (name: string) => void;
+  devices: DeviceEntry[];
+  onListDevices: () => void;
+  onRevokeDevice: (deviceId: string) => void;
+  onRenameDevice: (deviceId: string, name: string) => void;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -129,6 +133,10 @@ export function MainScreen({
   onListSecrets,
   onSetSecret,
   onDeleteSecret,
+  devices,
+  onListDevices,
+  onRevokeDevice,
+  onRenameDevice,
 }: MainScreenProps) {
   const AGENTS = ['claude', 'codex', 'gemini', 'aider'] as const;
   type AgentName = typeof AGENTS[number];
@@ -280,6 +288,10 @@ export function MainScreen({
         onListSecrets={onListSecrets}
         onSetSecret={onSetSecret}
         onDeleteSecret={onDeleteSecret}
+        devices={devices}
+        onListDevices={onListDevices}
+        onRevokeDevice={onRevokeDevice}
+        onRenameDevice={onRenameDevice}
         onBrowseFiles={() => { setSettingsVisible(false); setFilesVisible(true); }}
       />
 
