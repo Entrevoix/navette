@@ -47,6 +47,7 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
   const [port, setPort] = useState('7878');
   const [token, setToken] = useState('');
   const [container, setContainer] = useState('');
+  const [tls, setTls] = useState(false);
   const [tsApiKey, setTsApiKey] = useState('');
   const [tsPeers, setTsPeers] = useState<TsPeer[]>([]);
   const [tsPeerVisible, setTsPeerVisible] = useState(false);
@@ -89,6 +90,7 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
     setPort(cfg.port);
     setToken(cfg.token);
     setContainer(cfg.container ?? '');
+    setTls(cfg.tls ?? false);
     if (setId) setSelectedId(cfg.id);
   }
 
@@ -117,6 +119,7 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
       port: port.trim(),
       token: token.trim(),
       container: container.trim() || undefined,
+      tls,
     };
 
     const existing = savedConfigs.findIndex(c => c.id === cfg.id);
@@ -163,7 +166,7 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
       }
       const encoded = data.slice('navette://'.length);
       const decoded = atob(encoded);
-      const payload = JSON.parse(decoded) as { host?: string; port?: string; token?: string };
+      const payload = JSON.parse(decoded) as { host?: string; port?: string; token?: string; tls?: boolean };
       if (!payload.host || !payload.port || !payload.token) {
         setQrError('QR code is missing connection details.');
         setQrVisible(false);
@@ -172,6 +175,7 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
       setHost(payload.host);
       setPort(payload.port);
       setToken(payload.token);
+      setTls(payload.tls ?? false);
       setName(`QR: ${payload.host}`);
       setSelectedId(null);
       setQrVisible(false);
@@ -212,6 +216,7 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
       port: port.trim(),
       token: token.trim(),
       container: container.trim() || undefined,
+      tls,
     });
   };
 

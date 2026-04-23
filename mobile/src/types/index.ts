@@ -100,6 +100,7 @@ export interface ServerConfig {
   port: string;
   token: string;
   container?: string;
+  tls?: boolean;
 }
 
 export interface DirEntry {

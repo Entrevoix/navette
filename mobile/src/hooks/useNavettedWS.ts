@@ -432,7 +432,8 @@ export function useNavettedWS(): UseNavettedWSResult {
     wsRef.current?.close();
     setStatus('connecting');
 
-    const url = `ws://${config.host}:${config.port}`;
+    const scheme = config.tls ? 'wss' : 'ws';
+    const url = `${scheme}://${config.host}:${config.port}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 

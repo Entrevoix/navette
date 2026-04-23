@@ -63,6 +63,7 @@ pub struct RunRequest {
 
 fn handle_pair() -> Result<()> {
     let cfg = config::load_or_create()?;
+    let tls = cfg.tls_enabled();
     let local_ip = local_ip_address::local_ip()
         .map(|ip| ip.to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -71,6 +72,7 @@ fn handle_pair() -> Result<()> {
         "host": local_ip,
         "port": cfg.ws_port.to_string(),
         "token": cfg.token,
+        "tls": tls,
     });
     let json = serde_json::to_string(&payload).context("failed to serialize pairing payload")?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(&json);
@@ -98,7 +100,13 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let cfg = Arc::new(config::load_or_create()?);
-    tracing::info!(ws_port = cfg.ws_port, max_concurrent = cfg.max_concurrent_sessions, "config loaded");
+    let tls_acceptor = ws::load_tls_acceptor(&cfg)?;
+    tracing::info!(
+        ws_port = cfg.ws_port,
+        max_concurrent = cfg.max_concurrent_sessions,
+        tls = tls_acceptor.is_some(),
+        "config loaded"
+    );
 
     let db = Arc::new(std::sync::Mutex::new(db::open()?));
     let pending: PendingApprovals = Arc::new(Mutex::new(HashMap::new()));
@@ -266,6 +274,7 @@ async fn main() -> Result<()> {
         sessions.clone(),
         cfg.max_concurrent_sessions,
         cfg.clone(),
+        tls_acceptor,
     ));
 
     // Stdin fallback approvals (useful for debugging without a WS client)

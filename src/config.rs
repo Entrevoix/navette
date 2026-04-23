@@ -24,6 +24,19 @@ pub struct Config {
     pub approval_warn_before_secs: u64,
     pub max_concurrent_sessions: usize,
     pub notify: NotifyConfig,
+    pub tls_cert_path: Option<String>,
+    pub tls_key_path: Option<String>,
+}
+
+impl Config {
+    pub fn tls_enabled(&self) -> bool {
+        match (&self.tls_cert_path, &self.tls_key_path) {
+            (Some(cert), Some(key)) => {
+                std::path::Path::new(cert).exists() && std::path::Path::new(key).exists()
+            }
+            _ => false,
+        }
+    }
 }
 
 pub fn load_or_create() -> Result<Config> {
@@ -76,6 +89,15 @@ pub fn load_or_create() -> Result<Config> {
             .unwrap_or("")
             .to_string();
 
+        let tls_cert_path = table
+            .get("tls_cert_path")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let tls_key_path = table
+            .get("tls_key_path")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
         // Generate and persist ntfy_topic on first access for existing configs.
         // Atomic write: build new content, write to .tmp, fsync, rename.
         let ntfy_topic_raw = table
@@ -107,10 +129,12 @@ pub fn load_or_create() -> Result<Config> {
                 telegram_bot_token,
                 telegram_chat_id,
             },
+            tls_cert_path,
+            tls_key_path,
         });
     }
 
-    // New config — generate token and ntfy_topic.
+    // New config — generate token, ntfy_topic, and self-signed TLS cert.
     let token = random_alphanumeric(32);
     let ntfy_topic = random_alphanumeric(32);
 
@@ -118,8 +142,15 @@ pub fn load_or_create() -> Result<Config> {
     std::fs::create_dir_all(dir)
         .with_context(|| format!("failed to create {}", dir.display()))?;
 
+    let cert_path = dir.join("cert.pem");
+    let key_path = dir.join("key.pem");
+    generate_self_signed_cert(&cert_path, &key_path)?;
+
+    let cert_str = cert_path.to_string_lossy();
+    let key_str = key_path.to_string_lossy();
+
     let content = format!(
-        "token = \"{token}\"\nws_port = 7878\napproval_ttl_secs = 300\napproval_warn_before_secs = 30\nmax_concurrent_sessions = 4\nntfy_base_url = \"https://ntfy.sh\"\nntfy_topic = \"{ntfy_topic}\"\nntfy_token = \"\"\ntelegram_bot_token = \"\"\ntelegram_chat_id = \"\"\n"
+        "token = \"{token}\"\nws_port = 7878\napproval_ttl_secs = 300\napproval_warn_before_secs = 30\nmax_concurrent_sessions = 4\nntfy_base_url = \"https://ntfy.sh\"\nntfy_topic = \"{ntfy_topic}\"\nntfy_token = \"\"\ntelegram_bot_token = \"\"\ntelegram_chat_id = \"\"\ntls_cert_path = \"{cert_str}\"\ntls_key_path = \"{key_str}\"\n"
     );
 
     std::fs::OpenOptions::new()
@@ -139,7 +170,8 @@ pub fn load_or_create() -> Result<Config> {
         path = %path.display(),
         token_prefix = &token[..8],
         ntfy_topic = %ntfy_topic,
-        "generated new config"
+        tls_cert = %cert_str,
+        "generated new config with TLS"
     );
     Ok(Config {
         token,
@@ -154,6 +186,8 @@ pub fn load_or_create() -> Result<Config> {
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
         },
+        tls_cert_path: Some(cert_str.into_owned()),
+        tls_key_path: Some(key_str.into_owned()),
     })
 }
 
@@ -176,12 +210,64 @@ fn write_config_atomic(path: &PathBuf, content: &str) -> Result<()> {
         .with_context(|| format!("failed to rename {} → {}", tmp.display(), path.display()))
 }
 
+fn generate_self_signed_cert(cert_path: &std::path::Path, key_path: &std::path::Path) -> Result<()> {
+    use std::io::Write;
+
+    let local_ip = local_ip_address::local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
+
+    let mut params = rcgen::CertificateParams::new(vec![
+        "localhost".to_string(),
+    ]).context("failed to create cert params")?;
+    params.subject_alt_names.push(rcgen::SanType::IpAddress(
+        "127.0.0.1".parse().expect("valid literal"),
+    ));
+    if let Ok(ip) = local_ip.parse() {
+        params.subject_alt_names.push(rcgen::SanType::IpAddress(ip));
+    }
+
+    let key_pair = rcgen::KeyPair::generate().context("failed to generate key pair")?;
+    let cert = params.self_signed(&key_pair).context("failed to generate self-signed cert")?;
+
+    let mut cert_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(cert_path)
+        .with_context(|| format!("failed to create {}", cert_path.display()))?;
+    cert_file.write_all(cert.pem().as_bytes()).context("failed to write cert")?;
+
+    let mut key_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(key_path)
+        .with_context(|| format!("failed to create {}", key_path.display()))?;
+    key_file.write_all(key_pair.serialize_pem().as_bytes()).context("failed to write key")?;
+
+    tracing::info!(
+        cert = %cert_path.display(),
+        key = %key_path.display(),
+        san_ip = %local_ip,
+        "generated self-signed TLS certificate"
+    );
+    Ok(())
+}
+
 fn random_alphanumeric(len: usize) -> String {
     rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(len)
         .map(char::from)
         .collect()
+}
+
+#[cfg(test)]
+pub fn generate_self_signed_cert_for_test(cert_path: &std::path::Path, key_path: &std::path::Path) {
+    generate_self_signed_cert(cert_path, key_path).unwrap();
 }
 
 fn config_path() -> Result<PathBuf> {
@@ -207,6 +293,8 @@ mod tests {
                 telegram_bot_token: String::new(),
                 telegram_chat_id: String::new(),
             },
+            tls_cert_path: None,
+            tls_key_path: None,
         }
     }
 
@@ -312,5 +400,51 @@ mod tests {
         assert_eq!(warn, 30);
         assert_eq!(max, 4);
         assert!(warn < ttl);
+    }
+
+    #[test]
+    fn tls_disabled_when_no_paths() {
+        let cfg = make_config("tok");
+        assert!(!cfg.tls_enabled());
+    }
+
+    #[test]
+    fn tls_disabled_when_files_missing() {
+        let mut cfg = make_config("tok");
+        cfg.tls_cert_path = Some("/nonexistent/cert.pem".to_string());
+        cfg.tls_key_path = Some("/nonexistent/key.pem".to_string());
+        assert!(!cfg.tls_enabled());
+    }
+
+    #[test]
+    fn tls_enabled_when_files_exist() {
+        let dir = std::env::temp_dir().join("navetted-test-tls");
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert = dir.join("cert.pem");
+        let key = dir.join("key.pem");
+        generate_self_signed_cert(&cert, &key).unwrap();
+
+        let mut cfg = make_config("tok");
+        cfg.tls_cert_path = Some(cert.to_string_lossy().into_owned());
+        cfg.tls_key_path = Some(key.to_string_lossy().into_owned());
+        assert!(cfg.tls_enabled());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn generate_cert_creates_valid_pem_files() {
+        let dir = std::env::temp_dir().join("navetted-test-certgen");
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert = dir.join("cert.pem");
+        let key = dir.join("key.pem");
+        generate_self_signed_cert(&cert, &key).unwrap();
+
+        let cert_content = std::fs::read_to_string(&cert).unwrap();
+        let key_content = std::fs::read_to_string(&key).unwrap();
+        assert!(cert_content.contains("BEGIN CERTIFICATE"));
+        assert!(key_content.contains("BEGIN PRIVATE KEY"));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -13,8 +13,10 @@ use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use rusqlite::Connection;
 use serde_json::Value;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
 use tokio::sync::{broadcast, oneshot};
+use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::config::Config;
@@ -23,6 +25,39 @@ use crate::{BufferedDecisions, Decision, PendingApprovals, Sessions};
 
 /// Broadcast channel payload: (seq, unix_ts, raw_json_string)
 pub type EventTx = broadcast::Sender<(i64, f64, String)>;
+
+pub fn load_tls_acceptor(cfg: &Config) -> Result<Option<TlsAcceptor>> {
+    let (Some(cert_path), Some(key_path)) = (&cfg.tls_cert_path, &cfg.tls_key_path) else {
+        return Ok(None);
+    };
+
+    let cert_file = &mut std::io::BufReader::new(
+        std::fs::File::open(cert_path)
+            .with_context(|| format!("failed to open TLS cert {cert_path}"))?,
+    );
+    let key_file = &mut std::io::BufReader::new(
+        std::fs::File::open(key_path)
+            .with_context(|| format!("failed to open TLS key {key_path}"))?,
+    );
+
+    let certs: Vec<_> = rustls_pemfile::certs(cert_file)
+        .collect::<std::result::Result<_, _>>()
+        .context("failed to parse TLS cert PEM")?;
+    let key = rustls_pemfile::private_key(key_file)
+        .context("failed to parse TLS key PEM")?
+        .context("no private key found in PEM file")?;
+
+    let tls_config = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .context("failed to set TLS protocol versions")?
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .context("failed to build TLS server config")?;
+
+    Ok(Some(TlsAcceptor::from(Arc::new(tls_config))))
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn serve(
@@ -35,12 +70,14 @@ pub async fn serve(
     sessions: Sessions,
     max_concurrent: usize,
     cfg: Arc<Config>,
+    tls_acceptor: Option<TlsAcceptor>,
 ) -> Result<()> {
     let addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&addr)
         .await
         .with_context(|| format!("failed to bind WebSocket on {addr}"))?;
-    tracing::info!("WebSocket listening on ws://{addr}");
+    let scheme = if tls_acceptor.is_some() { "wss" } else { "ws" };
+    tracing::info!("WebSocket listening on {scheme}://{addr}");
 
     loop {
         match listener.accept().await {
@@ -54,21 +91,32 @@ pub async fn serve(
                 let sessions = sessions.clone();
                 let events_tx = events_tx.clone();
                 let cfg = cfg.clone();
+                let tls = tls_acceptor.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_ws(
-                        stream,
-                        token,
-                        db,
-                        pending,
-                        buffered,
-                        events_rx,
-                        events_tx,
-                        sessions,
-                        max_concurrent,
-                        cfg,
-                    )
-                    .await
-                    {
+                    let result = if let Some(acceptor) = tls {
+                        match acceptor.accept(stream).await {
+                            Ok(tls_stream) => {
+                                handle_ws(
+                                    tls_stream,
+                                    token, db, pending, buffered,
+                                    events_rx, events_tx, sessions,
+                                    max_concurrent, cfg,
+                                ).await
+                            }
+                            Err(e) => {
+                                tracing::error!(%peer, "TLS handshake failed: {e}");
+                                return;
+                            }
+                        }
+                    } else {
+                        handle_ws(
+                            stream,
+                            token, db, pending, buffered,
+                            events_rx, events_tx, sessions,
+                            max_concurrent, cfg,
+                        ).await
+                    };
+                    if let Err(e) = result {
                         tracing::error!("WS connection error: {e:#}");
                     }
                 });
@@ -79,8 +127,8 @@ pub async fn serve(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn handle_ws(
-    stream: TcpStream,
+async fn handle_ws<S>(
+    stream: S,
     token: String,
     db: Arc<Mutex<Connection>>,
     pending: PendingApprovals,
@@ -90,7 +138,10 @@ async fn handle_ws(
     sessions: Sessions,
     max_concurrent: usize,
     cfg: Arc<Config>,
-) -> Result<()> {
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let ws = accept_async(stream).await.context("WS upgrade failed")?;
     let (mut sink, mut src) = ws.split();
 
@@ -1123,5 +1174,55 @@ mod tests {
         assert!(constant_time_token_eq("my-secret", "my-secret"));
         assert!(!constant_time_token_eq("my-secret", "wrong"));
         assert!(!constant_time_token_eq("short", "longer-token"));
+    }
+
+    #[test]
+    fn load_tls_acceptor_none_when_no_paths() {
+        let cfg = crate::config::Config {
+            token: "t".to_string(),
+            ws_port: 7878,
+            approval_ttl_secs: 300,
+            approval_warn_before_secs: 30,
+            max_concurrent_sessions: 4,
+            notify: crate::config::NotifyConfig {
+                ntfy_base_url: String::new(),
+                ntfy_topic: String::new(),
+                ntfy_token: String::new(),
+                telegram_bot_token: String::new(),
+                telegram_chat_id: String::new(),
+            },
+            tls_cert_path: None,
+            tls_key_path: None,
+        };
+        assert!(load_tls_acceptor(&cfg).unwrap().is_none());
+    }
+
+    #[test]
+    fn load_tls_acceptor_with_generated_cert() {
+        let dir = std::env::temp_dir().join("navetted-test-tls-acceptor");
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert = dir.join("cert.pem");
+        let key = dir.join("key.pem");
+        crate::config::generate_self_signed_cert_for_test(&cert, &key);
+
+        let cfg = crate::config::Config {
+            token: "t".to_string(),
+            ws_port: 7878,
+            approval_ttl_secs: 300,
+            approval_warn_before_secs: 30,
+            max_concurrent_sessions: 4,
+            notify: crate::config::NotifyConfig {
+                ntfy_base_url: String::new(),
+                ntfy_topic: String::new(),
+                ntfy_token: String::new(),
+                telegram_bot_token: String::new(),
+                telegram_chat_id: String::new(),
+            },
+            tls_cert_path: Some(cert.to_string_lossy().into_owned()),
+            tls_key_path: Some(key.to_string_lossy().into_owned()),
+        };
+        assert!(load_tls_acceptor(&cfg).unwrap().is_some());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
