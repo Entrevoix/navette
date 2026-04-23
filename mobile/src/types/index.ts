@@ -162,6 +162,15 @@ export interface DeviceEntry {
   revoked: boolean;
 }
 
+export type PolicyAction = 'allow' | 'deny' | 'prompt';
+
+export interface ApprovalPolicy {
+  tool_name: string;
+  action: PolicyAction;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface FileContentEvent {
   type: 'file_content';
   path: string;

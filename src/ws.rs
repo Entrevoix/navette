@@ -1023,6 +1023,96 @@ where
                                 if sink.send(Message::Text(reply)).await.is_err() {
                                     break;
                                 }
+                            } else if msg_type == "get_approval_policies" {
+                                let db2 = db.clone();
+                                let policies = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::list_approval_policies(&conn)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let items: Vec<serde_json::Value> = policies
+                                    .iter()
+                                    .map(|(tool, action, created_at, updated_at)| {
+                                        serde_json::json!({
+                                            "tool_name": tool,
+                                            "action": action,
+                                            "created_at": created_at,
+                                            "updated_at": updated_at,
+                                        })
+                                    })
+                                    .collect();
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "approval_policies_list",
+                                    "policies": items,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
+                            } else if msg_type == "set_approval_policy" {
+                                let tool_name = v
+                                    .get("tool_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let action = v
+                                    .get("action")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("prompt")
+                                    .to_string();
+                                if tool_name.is_empty()
+                                    || !matches!(
+                                        action.as_str(),
+                                        "allow" | "deny" | "prompt"
+                                    )
+                                {
+                                    let reply = serde_json::to_string(&serde_json::json!({
+                                        "type": "error",
+                                        "message": "tool_name required; action must be allow, deny, or prompt",
+                                    }))
+                                    .unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                } else {
+                                    let now = unix_ts();
+                                    {
+                                        let conn = db.lock().unwrap();
+                                        let _ =
+                                            db::set_approval_policy(&conn, &tool_name, &action, now);
+                                    }
+                                    tracing::info!(%client_id, %tool_name, %action, "approval policy set");
+                                    let reply = serde_json::to_string(&serde_json::json!({
+                                        "type": "approval_policy_set",
+                                        "tool_name": tool_name,
+                                        "action": action,
+                                    }))
+                                    .unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "delete_approval_policy" {
+                                let tool_name = v
+                                    .get("tool_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                {
+                                    let conn = db.lock().unwrap();
+                                    let _ = db::delete_approval_policy(&conn, &tool_name);
+                                }
+                                tracing::info!(%client_id, %tool_name, "approval policy deleted");
+                                let reply = serde_json::to_string(&serde_json::json!({
+                                    "type": "approval_policy_deleted",
+                                    "tool_name": tool_name,
+                                }))
+                                .unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
                             } else {
                                 handle_input(&v, &client_id, &pending, &buffered).await;
                             }

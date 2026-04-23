@@ -101,6 +101,54 @@ async fn handle_connection(
 
     let req: HookRequest = serde_json::from_str(&buf).context("failed to parse hook request")?;
 
+    // ── Policy check ─────────────────────────────────────────────────────────
+    let policy_action = {
+        let conn = db.lock().unwrap();
+        db::get_approval_policy(&conn, &req.tool_name)
+            .unwrap_or(None)
+            .unwrap_or_else(|| "prompt".to_string())
+    };
+
+    if policy_action == "allow" {
+        tracing::debug!(tool = %req.tool_name, "policy: auto-allow");
+        let response = HookResponse {
+            decision: "allow".to_string(),
+        };
+        let response_bytes =
+            serde_json::to_vec(&response).context("failed to serialize response")?;
+        stream
+            .write_all(&response_bytes)
+            .await
+            .context("failed to write hook response")?;
+        return Ok(());
+    }
+
+    if policy_action == "deny" {
+        tracing::info!(tool = %req.tool_name, tool_use_id = %req.tool_use_id, "policy: auto-deny");
+        persist_and_emit(
+            &db,
+            &events_tx,
+            serde_json::json!({
+                "type": "approval_auto_denied",
+                "tool_use_id": req.tool_use_id,
+                "tool_name": req.tool_name,
+                "session_id": req.session_id,
+                "reason": "policy",
+            }),
+        );
+        let response = HookResponse {
+            decision: "deny".to_string(),
+        };
+        let response_bytes =
+            serde_json::to_vec(&response).context("failed to serialize response")?;
+        stream
+            .write_all(&response_bytes)
+            .await
+            .context("failed to write hook response")?;
+        return Ok(());
+    }
+    // policy_action == "prompt" — fall through to existing logic
+
     tracing::info!(tool_use_id = %req.tool_use_id, tool = %req.tool_name, "approval pending");
 
     let decision = if let Some(d) = buffered.lock().await.remove(&req.tool_use_id) {
