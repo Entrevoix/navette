@@ -1,6 +1,8 @@
 // Copyright (C) 2025 Entrevoix, Inc.
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
@@ -17,9 +19,10 @@ import { DirPicker } from '../components/DirPicker';
 import { EventFeed } from '../components/EventFeed';
 import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
+import { ContainerPickerScreen } from './ContainerPickerScreen';
 import { FileBrowserScreen } from './FileBrowserScreen';
 import { SettingsScreen } from './SettingsScreen';
-import { ApprovalPolicy, ConnectionStatus, DeviceEntry, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, PastSessionInfo, PendingApproval, PolicyAction, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
+import { ApprovalPolicy, ConnectionStatus, ContainerInfo, DeviceEntry, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, McpServerInfo, PastSessionInfo, PendingApproval, PolicyAction, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useNavettedWS';
 
 interface MainScreenProps {
@@ -75,6 +78,10 @@ interface MainScreenProps {
   onGetApprovalPolicies: () => void;
   onSetApprovalPolicy: (tool_name: string, action: PolicyAction) => void;
   onDeleteApprovalPolicy: (tool_name: string) => void;
+  mcpServers: McpServerInfo[];
+  onListMcpServers: () => void;
+  containers: ContainerInfo[];
+  onListContainers: () => void;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -145,8 +152,12 @@ export function MainScreen({
   onGetApprovalPolicies,
   onSetApprovalPolicy,
   onDeleteApprovalPolicy,
+  mcpServers,
+  onListMcpServers,
+  containers,
+  onListContainers,
 }: MainScreenProps) {
-  const AGENTS = ['claude', 'codex', 'gemini', 'aider'] as const;
+  const AGENTS = ['claude', 'codex', 'gemini'] as const;
   type AgentName = typeof AGENTS[number];
 
   const [prompt, setPrompt] = useState('');
@@ -160,6 +171,7 @@ export function MainScreen({
   const [selectedAgent, setSelectedAgent] = useState<AgentName>('claude');
   const [injectSecrets, setInjectSecrets] = useState(false);
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
+  const [containerPickerOpen, setContainerPickerOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [filesVisible, setFilesVisible] = useState(false);
@@ -172,6 +184,11 @@ export function MainScreen({
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevReconnectingRef = useRef(false);
+
+  useEffect(() => {
+    const key = container ? `navette_workdir_${container}` : 'navette_workdir_host';
+    AsyncStorage.getItem(key).then((v: string | null) => { setWorkDir(v ?? ''); });
+  }, [container]);
 
   useEffect(() => {
     if (sessionStatus === 'running') {
@@ -244,8 +261,14 @@ export function MainScreen({
   const handleRun = () => {
     const p = prompt.trim();
     if (!p) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const agentCommand = customCommand.trim() || (selectedAgent !== 'claude' ? selectedAgent : undefined);
-    onRun(p, container.trim() || undefined, dangerouslySkipPermissions, workDir.trim() || undefined, agentCommand, injectSecrets);
+    const wd = workDir.trim() || undefined;
+    onRun(p, container.trim() || undefined, dangerouslySkipPermissions, wd, agentCommand, injectSecrets);
+    if (wd) {
+      const key = container.trim() ? `navette_workdir_${container.trim()}` : 'navette_workdir_host';
+      AsyncStorage.setItem(key, wd);
+    }
     setPrompt('');
     setIsVoiceInterim(false);
   };
@@ -305,6 +328,8 @@ export function MainScreen({
         onSetApprovalPolicy={onSetApprovalPolicy}
         onDeleteApprovalPolicy={onDeleteApprovalPolicy}
         onBrowseFiles={() => { setSettingsVisible(false); setFilesVisible(true); }}
+        mcpServers={mcpServers}
+        onListMcpServers={onListMcpServers}
       />
 
       {/* Top bar */}
@@ -408,38 +433,6 @@ export function MainScreen({
       {/* New session input (only when idle) */}
       {!isRunning && (
         <View style={styles.runPanel}>
-          <View style={styles.promptRow}>
-            <TextInput
-              style={[styles.input, styles.promptInput, isVoiceInterim && styles.promptInterim]}
-              value={prompt}
-              onChangeText={(t: string) => { setPrompt(t); promptRef.current = t; setIsVoiceInterim(false); }}
-              placeholder="What should Claude do?"
-              placeholderTextColor="#6b7280"
-              multiline
-              autoCorrect={false}
-              onSubmitEditing={handleRun}
-            />
-            <VoiceButton onTranscript={handleVoiceTranscript} />
-          </View>
-          <View style={styles.runRow}>
-            <TextInput
-              style={[styles.input, styles.containerInput]}
-              value={container}
-              onChangeText={setContainer}
-              placeholder="container (optional)"
-              placeholderTextColor="#6b7280"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Pressable
-              style={[styles.runBtn, !prompt.trim() && styles.runBtnDisabled]}
-              onPress={handleRun}
-              disabled={!prompt.trim()}
-            >
-              <Text style={styles.runBtnText}>Run</Text>
-            </Pressable>
-          </View>
-
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.agentRow} contentContainerStyle={styles.agentRowContent}>
             {AGENTS.map(a => (
               <Pressable
@@ -452,21 +445,46 @@ export function MainScreen({
             ))}
           </ScrollView>
 
-          {/* Advanced options — collapsed by default */}
+          <TextInput
+            style={[styles.input, styles.promptInput, isVoiceInterim && styles.promptInterim]}
+            value={prompt}
+            onChangeText={(t: string) => { setPrompt(t); promptRef.current = t; setIsVoiceInterim(false); }}
+            placeholder="What should Claude do?"
+            placeholderTextColor="#6b7280"
+            multiline
+            autoCorrect={false}
+          />
+
+          <View style={styles.actionRow}>
+            <VoiceButton onTranscript={handleVoiceTranscript} />
+            <View style={styles.actionSpacer} />
+            <Pressable
+              style={[styles.runBtn, !prompt.trim() && styles.runBtnDisabled]}
+              onPress={handleRun}
+              disabled={!prompt.trim()}
+            >
+              <Text style={styles.runBtnText}>Run</Text>
+            </Pressable>
+          </View>
+
           <Pressable style={styles.advancedHeader} onPress={() => setAdvancedOpen(o => !o)}>
             <Text style={styles.advancedHeaderText}>Advanced {advancedOpen ? '▴' : '▾'}</Text>
           </Pressable>
 
           {advancedOpen && (
             <View style={styles.advancedBody}>
-              {/* Work directory */}
+              <Pressable onPress={() => setContainerPickerOpen(true)} style={styles.dirBtn}>
+                <Text style={styles.dirBtnText} numberOfLines={1}>
+                  {container || '📦 Container (optional)'}
+                </Text>
+              </Pressable>
+
               <Pressable onPress={() => setDirPickerOpen(true)} style={styles.dirBtn}>
                 <Text style={styles.dirBtnText} numberOfLines={1}>
                   {workDir || '📁 Work directory (optional)'}
                 </Text>
               </Pressable>
 
-              {/* Custom command override */}
               <TextInput
                 style={[styles.input, styles.advancedInput]}
                 value={customCommand}
@@ -477,7 +495,6 @@ export function MainScreen({
                 autoCorrect={false}
               />
 
-              {/* Inject secrets toggle */}
               <Pressable
                 style={[
                   styles.injectSecretsToggle,
@@ -496,7 +513,6 @@ export function MainScreen({
                 </View>
               </Pressable>
 
-              {/* Skip permissions toggle */}
               <Pressable
                 style={[
                   styles.skipPermsToggle,
@@ -531,6 +547,14 @@ export function MainScreen({
             onClose={() => setDirPickerOpen(false)}
             onSelect={setWorkDir}
             listDir={listDir}
+          />
+          <ContainerPickerScreen
+            visible={containerPickerOpen}
+            onClose={() => setContainerPickerOpen(false)}
+            containers={containers}
+            onRefresh={onListContainers}
+            selectedContainer={container}
+            onSelect={setContainer}
           />
         </View>
       )}
@@ -661,12 +685,12 @@ const styles = StyleSheet.create({
     color: '#f0f0f0',
     fontSize: 14,
   },
-  promptRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  promptInput: { flex: 1, minHeight: 52, maxHeight: 120, textAlignVertical: 'top' },
+  promptInput: { minHeight: 52, maxHeight: 120, textAlignVertical: 'top' },
   promptInterim: { color: '#94a3b8' },
-  runRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  containerInput: { flex: 1, fontSize: 13 },
-  runBtn: { backgroundColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  actionSpacer: { flex: 1 },
+  containerInput: { fontSize: 13 },
+  runBtn: { backgroundColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 20, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
   runBtnDisabled: { opacity: 0.35 },
   runBtnText: { color: '#0a0a0a', fontWeight: '700', fontSize: 14 },
   agentRow: { flexGrow: 0 },

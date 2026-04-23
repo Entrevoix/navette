@@ -6,7 +6,7 @@ import HmacSHA256 from 'crypto-js/hmac-sha256';
 import Hex from 'crypto-js/enc-hex';
 import * as Crypto from 'expo-crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, DeviceEntry, FileContentEvent, FileWriteResultEvent, ApprovalPolicy, PolicyAction } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, DeviceEntry, FileContentEvent, FileWriteResultEvent, ApprovalPolicy, PolicyAction, ContainerInfo, McpServerInfo } from '../types';
 
 const LAST_SEQ_KEY = 'navette_last_seq';
 
@@ -76,6 +76,10 @@ interface UseNavettedWSResult {
   getApprovalPolicies: () => void;
   setApprovalPolicy: (tool_name: string, action: PolicyAction) => void;
   deleteApprovalPolicy: (tool_name: string) => void;
+  containers: ContainerInfo[];
+  listContainers: () => void;
+  mcpServers: McpServerInfo[];
+  listMcpServers: () => void;
 }
 
 export function useNavettedWS(): UseNavettedWSResult {
@@ -96,6 +100,8 @@ export function useNavettedWS(): UseNavettedWSResult {
   const [devices, setDevices] = useState<DeviceEntry[]>([]);
   const [approvalPolicies, setApprovalPolicies] = useState<ApprovalPolicy[]>([]);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionInfo[]>([]);
+  const [containers, setContainers] = useState<ContainerInfo[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([]);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
 
@@ -332,6 +338,18 @@ export function useNavettedWS(): UseNavettedWSResult {
   const deleteApprovalPolicyFn = useCallback((tool_name: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'delete_approval_policy', tool_name }));
+    }
+  }, []);
+
+  const listContainers = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_containers' }));
+    }
+  }, []);
+
+  const listMcpServers = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_mcp_servers' }));
     }
   }, []);
 
@@ -658,6 +676,16 @@ export function useNavettedWS(): UseNavettedWSResult {
         return;
       }
 
+      if (msgType === 'containers_list') {
+        setContainers((msg['containers'] as ContainerInfo[] | undefined) ?? []);
+        return;
+      }
+
+      if (msgType === 'mcp_servers_list') {
+        setMcpServers((msg['servers'] as McpServerInfo[] | undefined) ?? []);
+        return;
+      }
+
       if (msgType === 'token_usage') {
         const sid = msg['session_id'] as string | undefined;
         if (sid) {
@@ -780,5 +808,9 @@ export function useNavettedWS(): UseNavettedWSResult {
     getApprovalPolicies,
     setApprovalPolicy: setApprovalPolicyFn,
     deleteApprovalPolicy: deleteApprovalPolicyFn,
+    containers,
+    listContainers,
+    mcpServers,
+    listMcpServers,
   };
 }

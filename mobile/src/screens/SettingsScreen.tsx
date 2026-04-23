@@ -22,8 +22,9 @@ import { ApprovalPolicyScreen } from './ApprovalPolicyScreen';
 import { SecretsScreen } from './SecretsScreen';
 import { SessionHistoryScreen } from './SessionHistoryScreen';
 import { SkillsScreen } from './SkillsScreen';
+import { McpServersScreen } from './McpServersScreen';
 import type { SkillInfo } from '../hooks/useNavettedWS';
-import type { ApprovalPolicy, DeviceEntry, EventFrame, PastSessionInfo, PolicyAction, SavedPrompt, ScheduledSessionInfo, SecretEntry } from '../types';
+import type { ApprovalPolicy, DeviceEntry, EventFrame, McpServerInfo, PastSessionInfo, PolicyAction, SavedPrompt, ScheduledSessionInfo, SecretEntry } from '../types';
 
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
 
@@ -69,9 +70,11 @@ interface SettingsScreenProps {
   onSetApprovalPolicy: (tool_name: string, action: PolicyAction) => void;
   onDeleteApprovalPolicy: (tool_name: string) => void;
   onBrowseFiles?: () => void;
+  mcpServers: McpServerInfo[];
+  onListMcpServers: () => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, devices, onListDevices, onRevokeDevice, onRenameDevice, approvalPolicies, onGetApprovalPolicies, onSetApprovalPolicy, onDeleteApprovalPolicy, onBrowseFiles }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, devices, onListDevices, onRevokeDevice, onRenameDevice, approvalPolicies, onGetApprovalPolicies, onSetApprovalPolicy, onDeleteApprovalPolicy, onBrowseFiles, mcpServers, onListMcpServers }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [testFeedback, setTestFeedback] = useState<'idle' | 'sent' | 'failed'>('idle');
 
@@ -95,6 +98,7 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
   const [secretsVisible, setSecretsVisible] = useState(false);
   const [devicesVisible, setDevicesVisible] = useState(false);
   const [policyVisible, setPolicyVisible] = useState(false);
+  const [mcpVisible, setMcpVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -204,6 +208,12 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
         onRefresh={onGetApprovalPolicies}
         onSet={onSetApprovalPolicy}
         onDelete={onDeleteApprovalPolicy}
+      />
+      <McpServersScreen
+        visible={mcpVisible}
+        onClose={() => setMcpVisible(false)}
+        servers={mcpServers}
+        onRefresh={onListMcpServers}
       />
       <ScheduleScreen
         visible={scheduleVisible}
@@ -382,6 +392,18 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
           <Pressable style={styles.scheduleBtn} onPress={() => setScheduleVisible(true)}>
             <Text style={styles.scheduleBtnText}>
               Manage Scheduled ({scheduledSessions.filter(s => !s.fired).length} pending) →
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>MCP Servers</Text>
+          <Text style={styles.sectionSubtitle}>
+            View MCP servers configured in ~/.claude/settings.json on the remote host.
+          </Text>
+          <Pressable style={styles.skillsBtn} onPress={() => setMcpVisible(true)}>
+            <Text style={styles.skillsBtnText}>
+              Browse MCP Servers ({mcpServers.length}) →
             </Text>
           </Pressable>
         </View>

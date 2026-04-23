@@ -26,6 +26,10 @@ pub struct Config {
     pub notify: NotifyConfig,
     pub tls_cert_path: Option<String>,
     pub tls_key_path: Option<String>,
+    #[allow(dead_code)]
+    pub webhook_url: Option<String>,
+    #[allow(dead_code)]
+    pub auto_compact_threshold: Option<u8>,
 }
 
 impl Config {
@@ -103,6 +107,15 @@ pub fn load_or_create() -> Result<Config> {
             .get("tls_key_path")
             .and_then(|v| v.as_str())
             .map(String::from);
+        let webhook_url = table
+            .get("webhook_url")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+        let auto_compact_threshold = table
+            .get("auto_compact_threshold")
+            .and_then(|v| v.as_integer())
+            .map(|v| v.clamp(0, 100) as u8);
 
         // Generate and persist ntfy_topic on first access for existing configs.
         // Atomic write: build new content, write to .tmp, fsync, rename.
@@ -140,6 +153,8 @@ pub fn load_or_create() -> Result<Config> {
             },
             tls_cert_path,
             tls_key_path,
+            webhook_url,
+            auto_compact_threshold,
         });
     }
 
@@ -195,6 +210,8 @@ pub fn load_or_create() -> Result<Config> {
         },
         tls_cert_path: Some(cert_str.into_owned()),
         tls_key_path: Some(key_str.into_owned()),
+        webhook_url: None,
+        auto_compact_threshold: None,
     })
 }
 
@@ -311,6 +328,8 @@ mod tests {
             },
             tls_cert_path: None,
             tls_key_path: None,
+            webhook_url: None,
+            auto_compact_threshold: None,
         }
     }
 

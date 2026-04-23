@@ -49,6 +49,8 @@ pub struct SessionEntry {
     pub input_tokens: Arc<AtomicU64>,
     pub output_tokens: Arc<AtomicU64>,
     pub cache_read_tokens: Arc<AtomicU64>,
+    /// Channel to send text input to the session's PTY stdin.
+    pub pty_tx: Option<tokio::sync::mpsc::Sender<String>>,
 }
 
 /// Sent from a WS client to start a claude session.
@@ -238,6 +240,7 @@ async fn main() -> Result<()> {
                             .collect::<String>()
                     };
                     let (kill_tx, kill_rx) = oneshot::channel::<()>();
+                    let (pty_input_tx, pty_input_rx) = tokio::sync::mpsc::channel::<String>(32);
                     scheduler_sessions.lock().await.insert(
                         session_id.clone(),
                         SessionEntry {
@@ -249,6 +252,7 @@ async fn main() -> Result<()> {
                             input_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                             output_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                             cache_read_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                            pty_tx: Some(pty_input_tx),
                         },
                     );
                     emit_session_list_changed(&scheduler_sessions, &scheduler_events_tx).await;
@@ -272,6 +276,7 @@ async fn main() -> Result<()> {
                         scheduler_events_tx.clone(),
                         kill_rx,
                         sched_token,
+                        pty_input_rx,
                     ));
                 }
             }
@@ -313,6 +318,7 @@ pub async fn run_session(
     events_tx: ws::EventTx,
     kill_rx: oneshot::Receiver<()>,
     token: String,
+    pty_input_rx: tokio::sync::mpsc::Receiver<String>,
 ) {
     let ts = unix_ts();
     let started_json = serde_json::to_string(&serde_json::json!({
@@ -389,6 +395,7 @@ pub async fn run_session(
         output_tokens,
         cache_read_tokens,
         &secrets,
+        pty_input_rx,
     )
     .await;
 
