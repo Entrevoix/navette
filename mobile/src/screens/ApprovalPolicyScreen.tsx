@@ -1,7 +1,7 @@
 // Copyright (C) 2025 Entrevoix, Inc.
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -40,26 +40,32 @@ function cycleAction(current: PolicyAction): PolicyAction {
   return 'prompt';
 }
 
-function badgeColor(action: PolicyAction) {
+function badgeColor(action: PolicyAction): { bg: string; text: string } {
   if (action === 'allow') return { bg: '#166534', text: '#4ade80' };
   if (action === 'deny') return { bg: '#3a1a1a', text: '#f87171' };
   return { bg: '#1a1500', text: '#fbbf24' };
 }
 
-function badgeLabel(action: PolicyAction) {
+function badgeLabel(action: PolicyAction): string {
   if (action === 'allow') return 'Auto-Allow';
   if (action === 'deny') return 'Auto-Deny';
   return 'Ask me';
 }
 
+const TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+
 export function ApprovalPolicyScreen({ visible, onClose, policies, onRefresh, onSet, onDelete }: Props) {
   const [customTool, setCustomTool] = useState('');
+  const lastTapRef = useRef(0);
 
   useEffect(() => {
     if (visible) onRefresh();
   }, [visible, onRefresh]);
 
   const handleTap = (tool: string) => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) return;
+    lastTapRef.current = now;
     const current = getPolicyAction(policies, tool);
     const next = cycleAction(current);
     if (next === 'prompt') {
@@ -70,8 +76,9 @@ export function ApprovalPolicyScreen({ visible, onClose, policies, onRefresh, on
   };
 
   const handleAddCustom = () => {
-    if (!customTool.trim()) return;
-    onSet(customTool.trim(), 'allow');
+    const name = customTool.trim();
+    if (!name || !TOOL_NAME_PATTERN.test(name)) return;
+    onSet(name, 'allow');
     setCustomTool('');
   };
 
@@ -87,7 +94,7 @@ export function ApprovalPolicyScreen({ visible, onClose, policies, onRefresh, on
           </Pressable>
         </View>
         <Text style={styles.hint}>
-          Tap to cycle: Auto-Allow → Ask me → Auto-Deny. Keep Bash, Write, and Edit set to Ask.
+          Tap to cycle: Ask me → Auto-Allow → Auto-Deny. Keep Bash, Write, and Edit on Ask me.
         </Text>
         <FlatList
           data={[...COMMON_TOOLS, ...customPolicies.map(p => p.tool_name)]}

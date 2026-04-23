@@ -195,12 +195,19 @@ pub async fn spawn_and_process(
             };
 
             // Inject session_id so each event is tagged with the owning session.
-            let enriched = if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&stored) {
-                v["session_id"] = serde_json::Value::String(session_id.to_string());
-                serde_json::to_string(&v).unwrap_or(stored)
-            } else {
-                stored
-            };
+            let (enriched, event_type) =
+                if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&stored) {
+                    v["session_id"] = serde_json::Value::String(session_id.to_string());
+                    let etype = v
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let s = serde_json::to_string(&v).unwrap_or(stored);
+                    (s, etype)
+                } else {
+                    (stored, "unknown".to_string())
+                };
 
             let db_ref = db.clone();
             let enriched_for_db = enriched.clone();
@@ -225,10 +232,7 @@ pub async fn spawn_and_process(
                 .context("spawn_blocking (retention) panicked")??;
             }
 
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&enriched) {
-                let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
-                tracing::info!(seq, event_type, "event logged");
-            }
+            tracing::info!(seq, event_type = %event_type, "event logged");
         } // end inner block
     } // end loop
 
