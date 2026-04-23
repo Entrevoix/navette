@@ -94,12 +94,68 @@ async fn handle_connection(
     approval_warn_before_secs: u64,
 ) -> Result<()> {
     let mut buf = String::new();
-    tokio::time::timeout(Duration::from_secs(5), stream.read_to_string(&mut buf))
-        .await
-        .context("hook request timed out after 5s")?
-        .context("failed to read hook request")?;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        (&mut stream).take(65536).read_to_string(&mut buf),
+    )
+    .await
+    .context("hook request timed out after 5s")?
+    .context("failed to read hook request")?;
 
     let req: HookRequest = serde_json::from_str(&buf).context("failed to parse hook request")?;
+
+    // ── Policy check ─────────────────────────────────────────────────────────
+    let policy_action = {
+        let conn = db.lock().unwrap();
+        match db::get_approval_policy(&conn, &req.tool_name) {
+            Ok(Some(action)) => action,
+            Ok(None) => "prompt".to_string(),
+            Err(e) => {
+                tracing::error!(tool = %req.tool_name, "policy lookup failed: {e:#}");
+                "prompt".to_string()
+            }
+        }
+    };
+
+    if policy_action == "allow" {
+        tracing::debug!(tool = %req.tool_name, "policy: auto-allow");
+        let response = HookResponse {
+            decision: "allow".to_string(),
+        };
+        let response_bytes =
+            serde_json::to_vec(&response).context("failed to serialize response")?;
+        stream
+            .write_all(&response_bytes)
+            .await
+            .context("failed to write hook response")?;
+        return Ok(());
+    }
+
+    if policy_action == "deny" {
+        tracing::info!(tool = %req.tool_name, tool_use_id = %req.tool_use_id, "policy: auto-deny");
+        persist_and_emit(
+            &db,
+            &events_tx,
+            serde_json::json!({
+                "type": "approval_auto_denied",
+                "tool_use_id": req.tool_use_id,
+                "tool_name": req.tool_name,
+                "session_id": req.session_id,
+                "reason": "policy",
+            }),
+        );
+        let response = HookResponse {
+            decision: "deny".to_string(),
+        };
+        let response_bytes =
+            serde_json::to_vec(&response).context("failed to serialize response")?;
+        stream
+            .write_all(&response_bytes)
+            .await
+            .context("failed to write hook response")?;
+        return Ok(());
+    }
+    // policy_action == "prompt" — fall through to existing logic
 
     tracing::info!(tool_use_id = %req.tool_use_id, tool = %req.tool_name, "approval pending");
 
@@ -195,7 +251,10 @@ fn persist_and_emit(db: &Arc<Mutex<Connection>>, tx: &EventTx, v: serde_json::Va
     let ts = unix_ts();
     let seq = {
         let conn = db.lock().unwrap();
-        db::insert_event(&conn, ts, &json).unwrap_or(0)
+        db::insert_event(&conn, ts, &json).unwrap_or_else(|e| {
+            tracing::error!("persist_and_emit: DB insert failed: {e:#}");
+            0
+        })
     };
     let _ = tx.send((seq, ts, json));
 }

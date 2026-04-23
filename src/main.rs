@@ -135,10 +135,11 @@ async fn main() -> Result<()> {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
                     match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
                         "approval_pending" => {
-                            let tool = v["tool_name"].as_str().unwrap_or("tool");
+                            let tool_raw = v["tool_name"].as_str().unwrap_or("tool");
                             let _ = notify
-                                .publish("Claude needs approval", tool, "default", &["warning"])
+                                .publish("Claude needs approval", tool_raw, "default", &["warning"])
                                 .await;
+                            let tool = crate::notify::html_escape(tool_raw);
                             let _ = notify
                                 .send_telegram(&format!("⚠️ Claude needs approval: {tool}"))
                                 .await;

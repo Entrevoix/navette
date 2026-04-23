@@ -52,10 +52,16 @@ pub fn load_or_create() -> Result<Config> {
             .and_then(|v| v.as_str())
             .context("missing 'token' in config")?
             .to_string();
-        let ws_port = table
+        let port_i64 = table
             .get("ws_port")
             .and_then(|v| v.as_integer())
-            .unwrap_or(7878) as u16;
+            .unwrap_or(7878);
+        let ws_port = if (1..=65535).contains(&port_i64) {
+            port_i64 as u16
+        } else {
+            tracing::warn!(value = port_i64, "ws_port out of range, using default 7878");
+            7878
+        };
         let approval_ttl_secs = table
             .get("approval_ttl_secs")
             .and_then(|v| v.as_integer())
@@ -170,7 +176,6 @@ pub fn load_or_create() -> Result<Config> {
 
     tracing::info!(
         path = %path.display(),
-        token_prefix = &token[..8],
         ntfy_topic = %ntfy_topic,
         tls_cert = %cert_str,
         "generated new config with TLS"

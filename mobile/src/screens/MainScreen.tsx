@@ -19,7 +19,7 @@ import { SessionCard } from '../components/SessionCard';
 import { VoiceButton } from '../components/VoiceButton';
 import { FileBrowserScreen } from './FileBrowserScreen';
 import { SettingsScreen } from './SettingsScreen';
-import { ConnectionStatus, DeviceEntry, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, PastSessionInfo, PendingApproval, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
+import { ApprovalPolicy, ConnectionStatus, DeviceEntry, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, PastSessionInfo, PendingApproval, PolicyAction, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useNavettedWS';
 
 interface MainScreenProps {
@@ -71,6 +71,10 @@ interface MainScreenProps {
   onListDevices: () => void;
   onRevokeDevice: (deviceId: string) => void;
   onRenameDevice: (deviceId: string, name: string) => void;
+  approvalPolicies: ApprovalPolicy[];
+  onGetApprovalPolicies: () => void;
+  onSetApprovalPolicy: (tool_name: string, action: PolicyAction) => void;
+  onDeleteApprovalPolicy: (tool_name: string) => void;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -137,6 +141,10 @@ export function MainScreen({
   onListDevices,
   onRevokeDevice,
   onRenameDevice,
+  approvalPolicies,
+  onGetApprovalPolicies,
+  onSetApprovalPolicy,
+  onDeleteApprovalPolicy,
 }: MainScreenProps) {
   const AGENTS = ['claude', 'codex', 'gemini', 'aider'] as const;
   type AgentName = typeof AGENTS[number];
@@ -292,6 +300,10 @@ export function MainScreen({
         onListDevices={onListDevices}
         onRevokeDevice={onRevokeDevice}
         onRenameDevice={onRenameDevice}
+        approvalPolicies={approvalPolicies}
+        onGetApprovalPolicies={onGetApprovalPolicies}
+        onSetApprovalPolicy={onSetApprovalPolicy}
+        onDeleteApprovalPolicy={onDeleteApprovalPolicy}
         onBrowseFiles={() => { setSettingsVisible(false); setFilesVisible(true); }}
       />
 

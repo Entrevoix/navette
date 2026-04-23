@@ -65,14 +65,27 @@ pub fn open() -> Result<Connection> {
              paired_at  REAL    NOT NULL,
              last_seen  REAL    NOT NULL,
              revoked    INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS approval_policy (
+             tool_name  TEXT    PRIMARY KEY,
+             action     TEXT    NOT NULL DEFAULT 'prompt',
+             created_at REAL    NOT NULL,
+             updated_at REAL    NOT NULL
          );",
     )
     .context("failed to initialize schema")?;
     // Migration: add session_id column for multi-session support (idempotent).
-    let _ = conn.execute(
+    match conn.execute(
         "ALTER TABLE events ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
         [],
-    );
+    ) {
+        Ok(_) => {}
+        Err(rusqlite::Error::SqliteFailure(err, Some(ref msg)))
+            if err.extended_code == 1 && msg.contains("duplicate column") => {}
+        Err(e) => {
+            tracing::warn!("migration failed: {e}");
+        }
+    }
     tracing::info!("DB opened at {}", db_path.display());
     Ok(conn)
 }
@@ -531,6 +544,69 @@ pub fn rename_device(conn: &Connection, device_id: &str, new_name: &str) -> Resu
     Ok(())
 }
 
+// ── Approval policy ──────────────────────────────────────────────────────────
+
+pub fn list_approval_policies(conn: &Connection) -> Result<Vec<(String, String, f64, f64)>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT tool_name, action, created_at, updated_at \
+             FROM approval_policy ORDER BY tool_name",
+        )
+        .context("prepare list_approval_policies")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        })
+        .context("query list_approval_policies")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect list_approval_policies")?;
+    Ok(rows)
+}
+
+pub fn get_approval_policy(conn: &Connection, tool_name: &str) -> Result<Option<String>> {
+    match conn.query_row(
+        "SELECT action FROM approval_policy WHERE tool_name = ?1",
+        rusqlite::params![tool_name],
+        |row| row.get::<_, String>(0),
+    ) {
+        Ok(action) => Ok(Some(action)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e).context("get_approval_policy failed"),
+    }
+}
+
+pub fn set_approval_policy(
+    conn: &Connection,
+    tool_name: &str,
+    action: &str,
+    now: f64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO approval_policy (tool_name, action, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?3)
+         ON CONFLICT(tool_name) DO UPDATE SET
+             action = excluded.action,
+             updated_at = excluded.updated_at",
+        rusqlite::params![tool_name, action, now],
+    )
+    .context("set_approval_policy failed")?;
+    Ok(())
+}
+
+pub fn delete_approval_policy(conn: &Connection, tool_name: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM approval_policy WHERE tool_name = ?1",
+        rusqlite::params![tool_name],
+    )
+    .context("delete_approval_policy failed")?;
+    Ok(())
+}
+
 /// Enforce per-session event cap: drop oldest events beyond 10,000.
 pub fn enforce_retention(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -601,6 +677,12 @@ mod tests {
                  paired_at  REAL    NOT NULL,
                  last_seen  REAL    NOT NULL,
                  revoked    INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS approval_policy (
+                 tool_name  TEXT    PRIMARY KEY,
+                 action     TEXT    NOT NULL DEFAULT 'prompt',
+                 created_at REAL    NOT NULL,
+                 updated_at REAL    NOT NULL
              );",
         )
         .unwrap();
@@ -910,5 +992,28 @@ mod tests {
     fn unknown_device_not_revoked() {
         let conn = in_memory_db();
         assert!(!is_device_revoked(&conn, "nonexistent").unwrap());
+    }
+
+    #[test]
+    fn approval_policy_crud() {
+        let conn = in_memory_db();
+        assert!(get_approval_policy(&conn, "Bash").unwrap().is_none());
+        set_approval_policy(&conn, "Read", "allow", 1000.0).unwrap();
+        assert_eq!(
+            get_approval_policy(&conn, "Read").unwrap(),
+            Some("allow".to_string())
+        );
+        set_approval_policy(&conn, "Read", "deny", 2000.0).unwrap();
+        assert_eq!(
+            get_approval_policy(&conn, "Read").unwrap(),
+            Some("deny".to_string())
+        );
+        set_approval_policy(&conn, "Write", "prompt", 1000.0).unwrap();
+        let all = list_approval_policies(&conn).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].0, "Read");
+        assert_eq!(all[1].0, "Write");
+        delete_approval_policy(&conn, "Read").unwrap();
+        assert!(get_approval_policy(&conn, "Read").unwrap().is_none());
     }
 }

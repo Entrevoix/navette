@@ -18,11 +18,12 @@ import { DEFAULT_WHISPER_ENDPOINT, STT_ENGINE_KEY, STT_RECOGNIZER_LABEL_KEY, STT
 import { PromptLibraryScreen } from './PromptLibraryScreen';
 import { ScheduleScreen } from './ScheduleScreen';
 import { DevicesScreen } from './DevicesScreen';
+import { ApprovalPolicyScreen } from './ApprovalPolicyScreen';
 import { SecretsScreen } from './SecretsScreen';
 import { SessionHistoryScreen } from './SessionHistoryScreen';
 import { SkillsScreen } from './SkillsScreen';
 import type { SkillInfo } from '../hooks/useNavettedWS';
-import type { DeviceEntry, EventFrame, PastSessionInfo, SavedPrompt, ScheduledSessionInfo, SecretEntry } from '../types';
+import type { ApprovalPolicy, DeviceEntry, EventFrame, PastSessionInfo, PolicyAction, SavedPrompt, ScheduledSessionInfo, SecretEntry } from '../types';
 
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
 
@@ -63,10 +64,14 @@ interface SettingsScreenProps {
   onListDevices: () => void;
   onRevokeDevice: (deviceId: string) => void;
   onRenameDevice: (deviceId: string, name: string) => void;
+  approvalPolicies: ApprovalPolicy[];
+  onGetApprovalPolicies: () => void;
+  onSetApprovalPolicy: (tool_name: string, action: PolicyAction) => void;
+  onDeleteApprovalPolicy: (tool_name: string) => void;
   onBrowseFiles?: () => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, devices, onListDevices, onRevokeDevice, onRenameDevice, onBrowseFiles }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, devices, onListDevices, onRevokeDevice, onRenameDevice, approvalPolicies, onGetApprovalPolicies, onSetApprovalPolicy, onDeleteApprovalPolicy, onBrowseFiles }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [testFeedback, setTestFeedback] = useState<'idle' | 'sent' | 'failed'>('idle');
 
@@ -89,6 +94,7 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
   const [promptLibraryVisible, setPromptLibraryVisible] = useState(false);
   const [secretsVisible, setSecretsVisible] = useState(false);
   const [devicesVisible, setDevicesVisible] = useState(false);
+  const [policyVisible, setPolicyVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -190,6 +196,14 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
         onRefresh={onListDevices}
         onRevoke={onRevokeDevice}
         onRename={onRenameDevice}
+      />
+      <ApprovalPolicyScreen
+        visible={policyVisible}
+        onClose={() => setPolicyVisible(false)}
+        policies={approvalPolicies}
+        onRefresh={onGetApprovalPolicies}
+        onSet={onSetApprovalPolicy}
+        onDelete={onDeleteApprovalPolicy}
       />
       <ScheduleScreen
         visible={scheduleVisible}
@@ -322,6 +336,18 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
           <Pressable style={styles.secretsBtn} onPress={() => setSecretsVisible(true)}>
             <Text style={styles.secretsBtnText}>
               Manage Secrets ({secrets.length}) →
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Approval Policies</Text>
+          <Text style={styles.sectionSubtitle}>
+            Auto-approve safe tools (Read, Glob, Grep) and only get prompted for dangerous ones.
+          </Text>
+          <Pressable style={styles.secretsBtn} onPress={() => setPolicyVisible(true)}>
+            <Text style={styles.secretsBtnText}>
+              Manage Policies ({approvalPolicies.length} rules) →
             </Text>
           </Pressable>
         </View>

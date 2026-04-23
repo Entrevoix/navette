@@ -4,12 +4,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import HmacSHA256 from 'crypto-js/hmac-sha256';
 import Hex from 'crypto-js/enc-hex';
+import * as Crypto from 'expo-crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, DeviceEntry, FileContentEvent, FileWriteResultEvent } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, DeviceEntry, FileContentEvent, FileWriteResultEvent, ApprovalPolicy, PolicyAction } from '../types';
 
 const LAST_SEQ_KEY = 'navette_last_seq';
 
-const CLIENT_ID = `mobile-${Math.random().toString(36).slice(2, 8)}`;
+const CLIENT_ID = `mobile-${Crypto.randomUUID()}`;
 
 export interface NotifyConfig {
   topic: string;
@@ -71,6 +72,10 @@ interface UseNavettedWSResult {
   listDevices: () => void;
   revokeDevice: (deviceId: string) => void;
   renameDevice: (deviceId: string, name: string) => void;
+  approvalPolicies: ApprovalPolicy[];
+  getApprovalPolicies: () => void;
+  setApprovalPolicy: (tool_name: string, action: PolicyAction) => void;
+  deleteApprovalPolicy: (tool_name: string) => void;
 }
 
 export function useNavettedWS(): UseNavettedWSResult {
@@ -89,6 +94,7 @@ export function useNavettedWS(): UseNavettedWSResult {
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [secrets, setSecrets] = useState<SecretEntry[]>([]);
   const [devices, setDevices] = useState<DeviceEntry[]>([]);
+  const [approvalPolicies, setApprovalPolicies] = useState<ApprovalPolicy[]>([]);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionInfo[]>([]);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
@@ -104,9 +110,14 @@ export function useNavettedWS(): UseNavettedWSResult {
   const reconnectDelayRef = useRef(1000);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverConfigRef = useRef<ServerConfig | null>(null);
+  const sessionsLengthRef = useRef(0);
 
   // Derived: is any session running?
   const sessionStatus: SessionStatus = sessions.length > 0 ? 'running' : 'idle';
+
+  useEffect(() => {
+    sessionsLengthRef.current = sessions.length;
+  }, [sessions.length]);
 
   useEffect(() => {
     AsyncStorage.getItem(LAST_SEQ_KEY).then((val: string | null) => {
@@ -148,17 +159,23 @@ export function useNavettedWS(): UseNavettedWSResult {
 
   const listDir = useCallback((path: string, cb: (ev: DirListingEvent) => void) => {
     dirListingCallbackRef.current = cb;
-    wsRef.current?.send(JSON.stringify({ type: 'list_dir', path }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'list_dir', path }));
+    }
   }, []);
 
   const readFile = useCallback((path: string, cb: (ev: FileContentEvent) => void) => {
     fileContentCallbackRef.current = cb;
-    wsRef.current?.send(JSON.stringify({ type: 'read_file', path }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'read_file', path }));
+    }
   }, []);
 
   const writeFile = useCallback((path: string, content: string, cb: (ev: FileWriteResultEvent) => void) => {
     fileWriteCallbackRef.current = cb;
-    wsRef.current?.send(JSON.stringify({ type: 'write_file', path, content }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'write_file', path, content }));
+    }
   }, []);
 
   const kill = useCallback((sessionId?: string) => {
@@ -297,6 +314,24 @@ export function useNavettedWS(): UseNavettedWSResult {
   const renameDevice = useCallback((deviceId: string, name: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'rename_device', device_id: deviceId, name }));
+    }
+  }, []);
+
+  const getApprovalPolicies = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'get_approval_policies' }));
+    }
+  }, []);
+
+  const setApprovalPolicyFn = useCallback((tool_name: string, action: PolicyAction) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'set_approval_policy', tool_name, action }));
+    }
+  }, []);
+
+  const deleteApprovalPolicyFn = useCallback((tool_name: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'delete_approval_policy', tool_name }));
     }
   }, []);
 
@@ -500,7 +535,7 @@ export function useNavettedWS(): UseNavettedWSResult {
         setReconnecting(false);
         setStatus('connected');
         AsyncStorage.setItem(LAST_SEQ_KEY, String(lastSeqRef.current));
-        if (sessions.length === 0) {
+        if (sessionsLengthRef.current === 0) {
           setPendingApprovals([]);
         }
         return;
@@ -590,6 +625,18 @@ export function useNavettedWS(): UseNavettedWSResult {
         return;
       }
 
+      if (msgType === 'approval_policies_list') {
+        setApprovalPolicies((msg['policies'] as ApprovalPolicy[] | undefined) ?? []);
+        return;
+      }
+
+      if (msgType === 'approval_policy_set' || msgType === 'approval_policy_deleted') {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'get_approval_policies' }));
+        }
+        return;
+      }
+
       if (msgType === 'scheduled_sessions_list') {
         setScheduledSessions((msg['sessions'] as ScheduledSessionInfo[] | undefined) ?? []);
         return;
@@ -666,7 +713,7 @@ export function useNavettedWS(): UseNavettedWSResult {
         connectWS(serverConfigRef.current, lastSeqRef.current);
       }, delay);
     };
-  }, [processEvent, sessions.length]);
+  }, [processEvent]);
 
   const connect = useCallback((config: ServerConfig) => {
     serverConfigRef.current = config;
@@ -729,5 +776,9 @@ export function useNavettedWS(): UseNavettedWSResult {
     listDevices,
     revokeDevice,
     renameDevice,
+    approvalPolicies,
+    getApprovalPolicies,
+    setApprovalPolicy: setApprovalPolicyFn,
+    deleteApprovalPolicy: deleteApprovalPolicyFn,
   };
 }
