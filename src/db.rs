@@ -75,10 +75,18 @@ pub fn open() -> Result<Connection> {
     )
     .context("failed to initialize schema")?;
     // Migration: add session_id column for multi-session support (idempotent).
-    let _ = conn.execute(
+    match conn.execute(
         "ALTER TABLE events ADD COLUMN session_id TEXT NOT NULL DEFAULT ''",
         [],
-    );
+    ) {
+        Ok(_) => {}
+        Err(e) => {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column") {
+                tracing::warn!("migration failed: {msg}");
+            }
+        }
+    }
     tracing::info!("DB opened at {}", db_path.display());
     Ok(conn)
 }

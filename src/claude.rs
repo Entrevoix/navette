@@ -169,11 +169,29 @@ pub async fn spawn_and_process(
 
             let now = unix_ts();
 
+            // Parse usage fields from the raw line before it may be truncated/consumed.
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(usage) = v.get("usage") {
+                    if let Some(n) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                        input_tokens.fetch_add(n, Ordering::Relaxed);
+                    }
+                    if let Some(n) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                        output_tokens.fetch_add(n, Ordering::Relaxed);
+                    }
+                    if let Some(n) = usage
+                        .get("cache_read_input_tokens")
+                        .and_then(|v| v.as_u64())
+                    {
+                        cache_read_tokens.fetch_add(n, Ordering::Relaxed);
+                    }
+                }
+            }
+
             let stored = if line.len() > MAX_PAYLOAD {
                 tracing::warn!(full_size = line.len(), "event truncated (> 64 KiB)");
                 db::truncate_payload(&line)
             } else {
-                line.clone()
+                line
             };
 
             // Inject session_id so each event is tagged with the owning session.
@@ -194,7 +212,7 @@ pub async fn spawn_and_process(
             .context("spawn_blocking panicked")??;
 
             // Broadcast to WebSocket clients (best-effort — ignore if no subscribers)
-            let _ = events_tx.send((seq, now, enriched));
+            let _ = events_tx.send((seq, now, enriched.clone()));
 
             event_count += 1;
             if event_count.is_multiple_of(100) {
@@ -207,25 +225,9 @@ pub async fn spawn_and_process(
                 .context("spawn_blocking (retention) panicked")??;
             }
 
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&enriched) {
                 let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
                 tracing::info!(seq, event_type, "event logged");
-
-                // Parse usage fields from assistant events and accumulate token counts.
-                if let Some(usage) = v.get("usage") {
-                    if let Some(n) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
-                        input_tokens.fetch_add(n, Ordering::Relaxed);
-                    }
-                    if let Some(n) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
-                        output_tokens.fetch_add(n, Ordering::Relaxed);
-                    }
-                    if let Some(n) = usage
-                        .get("cache_read_input_tokens")
-                        .and_then(|v| v.as_u64())
-                    {
-                        cache_read_tokens.fetch_add(n, Ordering::Relaxed);
-                    }
-                }
             }
         } // end inner block
     } // end loop

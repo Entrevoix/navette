@@ -22,7 +22,7 @@ impl NotifyClient {
             .timeout(Duration::from_secs(10))
             .connect_timeout(Duration::from_secs(5))
             .build()
-            .unwrap_or_default();
+            .expect("reqwest client build");
         Self {
             client,
             base_url: cfg.ntfy_base_url.trim_end_matches('/').to_string(),
@@ -90,5 +90,24 @@ impl NotifyClient {
         if let Err(e) = self.client.post(&url).json(&payload).send().await {
             tracing::warn!("Telegram notification failed: {e}");
         }
+    }
+}
+
+pub fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn html_escape_handles_special_chars() {
+        assert_eq!(html_escape("<script>"), "&lt;script&gt;");
+        assert_eq!(html_escape("A&B"), "A&amp;B");
+        assert_eq!(html_escape("normal text"), "normal text");
+        assert_eq!(html_escape(""), "");
     }
 }

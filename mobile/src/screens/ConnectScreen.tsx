@@ -64,22 +64,26 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
 
   useEffect(() => {
     (async () => {
-      const raw = await AsyncStorage.getItem(CONFIGS_KEY);
-      if (raw) {
-        const configs = JSON.parse(raw) as SavedConfig[];
-        setSavedConfigs(configs);
-        if (configs.length > 0) fillForm(configs[0], true);
-        return;
-      }
-      // Migrate legacy single config
-      const legacy = await AsyncStorage.getItem(LEGACY_KEY);
-      if (legacy) {
-        const cfg = JSON.parse(legacy) as ServerConfig;
-        const migrated: SavedConfig = { ...cfg, id: genId(), name: cfg.host };
-        const list = [migrated];
-        await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify(list));
-        setSavedConfigs(list);
-        fillForm(migrated, true);
+      try {
+        const raw = await AsyncStorage.getItem(CONFIGS_KEY);
+        if (raw) {
+          const configs = JSON.parse(raw) as SavedConfig[];
+          setSavedConfigs(configs);
+          if (configs.length > 0) fillForm(configs[0], true);
+          return;
+        }
+        // Migrate legacy single config
+        const legacy = await AsyncStorage.getItem(LEGACY_KEY);
+        if (legacy) {
+          const cfg = JSON.parse(legacy) as ServerConfig;
+          const migrated: SavedConfig = { ...cfg, id: genId(), name: cfg.host };
+          const list = [migrated];
+          await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify(list));
+          setSavedConfigs(list);
+          fillForm(migrated, true);
+        }
+      } catch {
+        // Corrupt stored config — start fresh
       }
     })();
   }, []);

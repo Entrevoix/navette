@@ -252,7 +252,13 @@ where
 
     match src.next().await {
         Some(Ok(Message::Text(txt))) => {
-            let msg: Value = serde_json::from_str(&txt).unwrap_or_default();
+            let msg: Value = match serde_json::from_str(&txt) {
+                Ok(v) => v,
+                Err(_) => {
+                    tracing::warn!("invalid JSON in attach message");
+                    serde_json::json!({})
+                }
+            };
             if let Some(s) = msg.get("since").and_then(|v| v.as_i64()) {
                 since = s;
             } else if msg.get("type").and_then(|v| v.as_str()) == Some("attach") {
@@ -461,33 +467,35 @@ where
                                     break;
                                 }
                             } else if msg_type == "list_skills" {
-                                let home = std::env::var("HOME").unwrap_or_default();
-                                let skills_dir = std::path::PathBuf::from(&home).join(".claude/skills");
-                                let mut skills = Vec::new();
-                                if let Ok(entries) = std::fs::read_dir(&skills_dir) {
-                                    for entry in entries.flatten() {
-                                        if entry.path().is_dir() {
-                                            let skill_name = entry.file_name().to_string_lossy().to_string();
-                                            let skill_md = entry.path().join("SKILL.md");
-                                            let description = std::fs::read_to_string(&skill_md)
-                                                .ok()
-                                                .and_then(|s| {
-                                                    s.lines()
-                                                        .find(|l| !l.starts_with('#') && !l.trim().is_empty() && !l.starts_with("---"))
-                                                        .map(|l| l.trim().to_string())
-                                                })
-                                                .unwrap_or_default();
-                                            skills.push(serde_json::json!({
-                                                "name": skill_name,
-                                                "description": description,
-                                            }));
+                                let response = tokio::task::spawn_blocking(move || {
+                                    let home = std::env::var("HOME").unwrap_or_default();
+                                    let skills_dir = std::path::PathBuf::from(&home).join(".claude/skills");
+                                    let mut skills = Vec::new();
+                                    if let Ok(entries) = std::fs::read_dir(&skills_dir) {
+                                        for entry in entries.flatten() {
+                                            if entry.path().is_dir() {
+                                                let skill_name = entry.file_name().to_string_lossy().to_string();
+                                                let skill_md = entry.path().join("SKILL.md");
+                                                let description = std::fs::read_to_string(&skill_md)
+                                                    .ok()
+                                                    .and_then(|s| {
+                                                        s.lines()
+                                                            .find(|l| !l.starts_with('#') && !l.trim().is_empty() && !l.starts_with("---"))
+                                                            .map(|l| l.trim().to_string())
+                                                    })
+                                                    .unwrap_or_default();
+                                                skills.push(serde_json::json!({
+                                                    "name": skill_name,
+                                                    "description": description,
+                                                }));
+                                            }
                                         }
                                     }
-                                }
-                                skills.sort_by(|a, b| {
-                                    a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
-                                });
-                                let response = serde_json::json!({ "type": "skills_list", "skills": skills });
+                                    skills.sort_by(|a, b| {
+                                        a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+                                    });
+                                    serde_json::json!({ "type": "skills_list", "skills": skills })
+                                }).await.unwrap_or_else(|_| serde_json::json!({"type": "error", "error": "task panicked"}));
                                 if let Ok(s) = serde_json::to_string(&response) {
                                     if sink.send(Message::Text(s)).await.is_err() {
                                         break;
@@ -526,194 +534,206 @@ where
                                     break;
                                 }
                             } else if msg_type == "list_dir" {
-                                let raw_path = v.get("path").and_then(|p| p.as_str()).unwrap_or("~");
-                                let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-                                let expanded = if raw_path == "~" || raw_path.starts_with("~/") {
-                                    raw_path.replacen('~', &home, 1)
-                                } else {
-                                    raw_path.to_string()
-                                };
-                                let canonical = std::fs::canonicalize(&expanded)
-                                    .unwrap_or_else(|_| std::path::PathBuf::from(&expanded));
+                                let raw_path = v.get("path").and_then(|p| p.as_str()).unwrap_or("~").to_string();
+                                let client_id2 = client_id.clone();
+                                let response = tokio::task::spawn_blocking(move || {
+                                    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+                                    let expanded = if raw_path == "~" || raw_path.starts_with("~/") {
+                                        raw_path.replacen('~', &home, 1)
+                                    } else {
+                                        raw_path.to_string()
+                                    };
+                                    let canonical = std::fs::canonicalize(&expanded)
+                                        .unwrap_or_else(|_| std::path::PathBuf::from(&expanded));
 
-                                let response = if !canonical.starts_with(&home) {
-                                    serde_json::json!({
-                                        "type": "dir_listing",
-                                        "path": canonical.to_string_lossy(),
-                                        "entries": [],
-                                        "error": "path is outside home directory"
-                                    })
-                                } else {
-                                    match std::fs::read_dir(&canonical) {
-                                        Ok(rd) => {
-                                            let mut entries: Vec<serde_json::Value> = rd
-                                                .filter_map(|e| e.ok())
-                                                .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-                                                .map(|e| {
-                                                    let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                                                    serde_json::json!({
-                                                        "name": e.file_name().to_string_lossy(),
-                                                        "is_dir": is_dir
-                                                    })
-                                                })
-                                                .collect();
-                                            entries.sort_by(|a, b| {
-                                                let ad = a["is_dir"].as_bool().unwrap_or(false);
-                                                let bd = b["is_dir"].as_bool().unwrap_or(false);
-                                                bd.cmp(&ad).then_with(|| {
-                                                    a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
-                                                })
-                                            });
-                                            entries.truncate(200);
-                                            serde_json::json!({
-                                                "type": "dir_listing",
-                                                "path": canonical.to_string_lossy(),
-                                                "entries": entries
-                                            })
-                                        }
-                                        Err(e) => serde_json::json!({
+                                    let result = if !canonical.starts_with(&home) {
+                                        serde_json::json!({
                                             "type": "dir_listing",
                                             "path": canonical.to_string_lossy(),
                                             "entries": [],
-                                            "error": e.to_string()
-                                        }),
-                                    }
-                                };
-                                tracing::debug!(%client_id, path = %canonical.display(), "list_dir");
+                                            "error": "path is outside home directory"
+                                        })
+                                    } else {
+                                        match std::fs::read_dir(&canonical) {
+                                            Ok(rd) => {
+                                                let mut entries: Vec<serde_json::Value> = rd
+                                                    .filter_map(|e| e.ok())
+                                                    .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                                                    .map(|e| {
+                                                        let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                                                        serde_json::json!({
+                                                            "name": e.file_name().to_string_lossy(),
+                                                            "is_dir": is_dir
+                                                        })
+                                                    })
+                                                    .collect();
+                                                entries.sort_by(|a, b| {
+                                                    let ad = a["is_dir"].as_bool().unwrap_or(false);
+                                                    let bd = b["is_dir"].as_bool().unwrap_or(false);
+                                                    bd.cmp(&ad).then_with(|| {
+                                                        a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+                                                    })
+                                                });
+                                                entries.truncate(200);
+                                                serde_json::json!({
+                                                    "type": "dir_listing",
+                                                    "path": canonical.to_string_lossy(),
+                                                    "entries": entries
+                                                })
+                                            }
+                                            Err(e) => serde_json::json!({
+                                                "type": "dir_listing",
+                                                "path": canonical.to_string_lossy(),
+                                                "entries": [],
+                                                "error": e.to_string()
+                                            }),
+                                        }
+                                    };
+                                    tracing::debug!(client_id = %client_id2, path = %canonical.display(), "list_dir");
+                                    result
+                                }).await.unwrap_or_else(|_| serde_json::json!({"type": "error", "error": "task panicked"}));
                                 if let Ok(s) = serde_json::to_string(&response) {
                                     if sink.send(Message::Text(s)).await.is_err() {
                                         break;
                                     }
                                 }
                             } else if msg_type == "read_file" {
-                                let raw_path = v.get("path").and_then(|p| p.as_str()).unwrap_or("");
-                                let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-                                let expanded = if raw_path.starts_with("~/") || raw_path == "~" {
-                                    raw_path.replacen('~', &home, 1)
-                                } else {
-                                    raw_path.to_string()
-                                };
-                                let canonical = std::fs::canonicalize(&expanded)
-                                    .unwrap_or_else(|_| std::path::PathBuf::from(&expanded));
+                                let raw_path = v.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+                                let client_id2 = client_id.clone();
+                                let response = tokio::task::spawn_blocking(move || {
+                                    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+                                    let expanded = if raw_path.starts_with("~/") || raw_path == "~" {
+                                        raw_path.replacen('~', &home, 1)
+                                    } else {
+                                        raw_path.to_string()
+                                    };
+                                    let canonical = std::fs::canonicalize(&expanded)
+                                        .unwrap_or_else(|_| std::path::PathBuf::from(&expanded));
 
-                                let response = if !canonical.starts_with(&home) {
-                                    serde_json::json!({
-                                        "type": "file_content",
-                                        "path": canonical.to_string_lossy(),
-                                        "error": "path is outside home directory"
-                                    })
-                                } else {
-                                    match std::fs::metadata(&canonical) {
-                                        Ok(meta) => {
-                                            const MAX_SIZE: u64 = 500 * 1024;
-                                            if meta.len() > MAX_SIZE {
-                                                serde_json::json!({
-                                                    "type": "file_content",
-                                                    "path": canonical.to_string_lossy(),
-                                                    "size": meta.len(),
-                                                    "error": "file too large (max 500KB)"
-                                                })
-                                            } else {
-                                                match std::fs::read(&canonical) {
-                                                    Ok(bytes) => {
-                                                        let check_len = bytes.len().min(8192);
-                                                        if bytes[..check_len].contains(&0) {
-                                                            serde_json::json!({
-                                                                "type": "file_content",
-                                                                "path": canonical.to_string_lossy(),
-                                                                "size": bytes.len(),
-                                                                "error": "binary file, cannot display"
-                                                            })
-                                                        } else {
-                                                            let content = String::from_utf8_lossy(&bytes);
-                                                            serde_json::json!({
-                                                                "type": "file_content",
-                                                                "path": canonical.to_string_lossy(),
-                                                                "content": content,
-                                                                "size": bytes.len()
-                                                            })
-                                                        }
-                                                    }
-                                                    Err(e) => serde_json::json!({
-                                                        "type": "file_content",
-                                                        "path": canonical.to_string_lossy(),
-                                                        "error": e.to_string()
-                                                    }),
-                                                }
-                                            }
-                                        }
-                                        Err(e) => serde_json::json!({
+                                    let result = if !canonical.starts_with(&home) {
+                                        serde_json::json!({
                                             "type": "file_content",
                                             "path": canonical.to_string_lossy(),
-                                            "error": e.to_string()
-                                        }),
-                                    }
-                                };
-                                tracing::debug!(%client_id, path = %canonical.display(), "read_file");
+                                            "error": "path is outside home directory"
+                                        })
+                                    } else {
+                                        match std::fs::metadata(&canonical) {
+                                            Ok(meta) => {
+                                                const MAX_SIZE: u64 = 500 * 1024;
+                                                if meta.len() > MAX_SIZE {
+                                                    serde_json::json!({
+                                                        "type": "file_content",
+                                                        "path": canonical.to_string_lossy(),
+                                                        "size": meta.len(),
+                                                        "error": "file too large (max 500KB)"
+                                                    })
+                                                } else {
+                                                    match std::fs::read(&canonical) {
+                                                        Ok(bytes) => {
+                                                            let check_len = bytes.len().min(8192);
+                                                            if bytes[..check_len].contains(&0) {
+                                                                serde_json::json!({
+                                                                    "type": "file_content",
+                                                                    "path": canonical.to_string_lossy(),
+                                                                    "size": bytes.len(),
+                                                                    "error": "binary file, cannot display"
+                                                                })
+                                                            } else {
+                                                                let content = String::from_utf8_lossy(&bytes);
+                                                                serde_json::json!({
+                                                                    "type": "file_content",
+                                                                    "path": canonical.to_string_lossy(),
+                                                                    "content": content,
+                                                                    "size": bytes.len()
+                                                                })
+                                                            }
+                                                        }
+                                                        Err(e) => serde_json::json!({
+                                                            "type": "file_content",
+                                                            "path": canonical.to_string_lossy(),
+                                                            "error": e.to_string()
+                                                        }),
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => serde_json::json!({
+                                                "type": "file_content",
+                                                "path": canonical.to_string_lossy(),
+                                                "error": e.to_string()
+                                            }),
+                                        }
+                                    };
+                                    tracing::debug!(client_id = %client_id2, path = %canonical.display(), "read_file");
+                                    result
+                                }).await.unwrap_or_else(|_| serde_json::json!({"type": "error", "error": "task panicked"}));
                                 if let Ok(s) = serde_json::to_string(&response) {
                                     if sink.send(Message::Text(s)).await.is_err() {
                                         break;
                                     }
                                 }
                             } else if msg_type == "write_file" {
-                                let raw_path = v.get("path").and_then(|p| p.as_str()).unwrap_or("");
-                                let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                                let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-                                let expanded = if raw_path.starts_with("~/") || raw_path == "~" {
-                                    raw_path.replacen('~', &home, 1)
-                                } else {
-                                    raw_path.to_string()
-                                };
-                                let path = std::path::Path::new(&expanded);
-                                let parent = path.parent().unwrap_or(path);
-                                let canonical_parent = std::fs::canonicalize(parent)
-                                    .unwrap_or_else(|_| parent.to_path_buf());
-                                let canonical = canonical_parent.join(
-                                    path.file_name().unwrap_or_default()
-                                );
+                                let raw_path = v.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+                                let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                                let client_id2 = client_id.clone();
+                                let response = tokio::task::spawn_blocking(move || {
+                                    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+                                    let expanded = if raw_path.starts_with("~/") || raw_path == "~" {
+                                        raw_path.replacen('~', &home, 1)
+                                    } else {
+                                        raw_path.to_string()
+                                    };
+                                    let path = std::path::PathBuf::from(&expanded);
+                                    let parent = path.parent().unwrap_or(&path).to_path_buf();
+                                    let canonical_parent = std::fs::canonicalize(&parent)
+                                        .unwrap_or_else(|_| parent.clone());
+                                    let canonical = canonical_parent.join(
+                                        path.file_name().unwrap_or_default()
+                                    );
 
-                                let response = if !canonical.starts_with(&home) {
-                                    serde_json::json!({
-                                        "type": "file_written",
-                                        "path": canonical.to_string_lossy(),
-                                        "ok": false,
-                                        "error": "path is outside home directory"
-                                    })
-                                } else if !canonical.to_string_lossy().contains("/.claude/") {
-                                    serde_json::json!({
-                                        "type": "file_written",
-                                        "path": canonical.to_string_lossy(),
-                                        "ok": false,
-                                        "error": "writes restricted to .claude/ directory"
-                                    })
-                                } else {
-                                    let tmp_path = canonical.with_extension("tmp");
-                                    match std::fs::write(&tmp_path, content) {
-                                        Ok(()) => match std::fs::rename(&tmp_path, &canonical) {
-                                            Ok(()) => serde_json::json!({
-                                                "type": "file_written",
-                                                "path": canonical.to_string_lossy(),
-                                                "ok": true
-                                            }),
-                                            Err(e) => {
-                                                let _ = std::fs::remove_file(&tmp_path);
-                                                serde_json::json!({
-                                                    "type": "file_written",
-                                                    "path": canonical.to_string_lossy(),
-                                                    "ok": false,
-                                                    "error": e.to_string()
-                                                })
-                                            }
-                                        },
-                                        Err(e) => serde_json::json!({
+                                    let result = if !canonical.starts_with(&home) {
+                                        serde_json::json!({
                                             "type": "file_written",
                                             "path": canonical.to_string_lossy(),
                                             "ok": false,
-                                            "error": e.to_string()
-                                        }),
-                                    }
-                                };
-                                tracing::debug!(%client_id, path = %canonical.display(), "write_file");
+                                            "error": "path is outside home directory"
+                                        })
+                                    } else if !canonical.starts_with(std::path::PathBuf::from(&home).join(".claude")) {
+                                        serde_json::json!({
+                                            "type": "file_written",
+                                            "path": canonical.to_string_lossy(),
+                                            "ok": false,
+                                            "error": "writes restricted to .claude/ directory"
+                                        })
+                                    } else {
+                                        let tmp_path = canonical.with_extension("tmp");
+                                        match std::fs::write(&tmp_path, &content) {
+                                            Ok(()) => match std::fs::rename(&tmp_path, &canonical) {
+                                                Ok(()) => serde_json::json!({
+                                                    "type": "file_written",
+                                                    "path": canonical.to_string_lossy(),
+                                                    "ok": true
+                                                }),
+                                                Err(e) => {
+                                                    let _ = std::fs::remove_file(&tmp_path);
+                                                    serde_json::json!({
+                                                        "type": "file_written",
+                                                        "path": canonical.to_string_lossy(),
+                                                        "ok": false,
+                                                        "error": e.to_string()
+                                                    })
+                                                }
+                                            },
+                                            Err(e) => serde_json::json!({
+                                                "type": "file_written",
+                                                "path": canonical.to_string_lossy(),
+                                                "ok": false,
+                                                "error": e.to_string()
+                                            }),
+                                        }
+                                    };
+                                    tracing::debug!(client_id = %client_id2, path = %canonical.display(), "write_file");
+                                    result
+                                }).await.unwrap_or_else(|_| serde_json::json!({"type": "error", "error": "task panicked"}));
                                 if let Ok(s) = serde_json::to_string(&response) {
                                     if sink.send(Message::Text(s)).await.is_err() {
                                         break;
@@ -1078,18 +1098,29 @@ where
                                     }
                                 } else {
                                     let now = unix_ts();
-                                    {
+                                    let result = {
                                         let conn = db.lock().unwrap();
-                                        let _ =
-                                            db::set_approval_policy(&conn, &tool_name, &action, now);
-                                    }
-                                    tracing::info!(%client_id, %tool_name, %action, "approval policy set");
-                                    let reply = serde_json::to_string(&serde_json::json!({
-                                        "type": "approval_policy_set",
-                                        "tool_name": tool_name,
-                                        "action": action,
-                                    }))
-                                    .unwrap_or_default();
+                                        db::set_approval_policy(&conn, &tool_name, &action, now)
+                                    };
+                                    let reply = match result {
+                                        Ok(()) => {
+                                            tracing::info!(%client_id, %tool_name, %action, "approval policy set");
+                                            serde_json::to_string(&serde_json::json!({
+                                                "type": "approval_policy_set",
+                                                "tool_name": tool_name,
+                                                "action": action,
+                                            }))
+                                            .unwrap_or_default()
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(%client_id, %tool_name, "set_approval_policy failed: {e:#}");
+                                            serde_json::to_string(&serde_json::json!({
+                                                "type": "error",
+                                                "error": format!("failed to set approval policy: {e}"),
+                                            }))
+                                            .unwrap_or_default()
+                                        }
+                                    };
                                     if sink.send(Message::Text(reply)).await.is_err() {
                                         break;
                                     }
@@ -1100,16 +1131,28 @@ where
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                {
+                                let result = {
                                     let conn = db.lock().unwrap();
-                                    let _ = db::delete_approval_policy(&conn, &tool_name);
-                                }
-                                tracing::info!(%client_id, %tool_name, "approval policy deleted");
-                                let reply = serde_json::to_string(&serde_json::json!({
-                                    "type": "approval_policy_deleted",
-                                    "tool_name": tool_name,
-                                }))
-                                .unwrap_or_default();
+                                    db::delete_approval_policy(&conn, &tool_name)
+                                };
+                                let reply = match result {
+                                    Ok(()) => {
+                                        tracing::info!(%client_id, %tool_name, "approval policy deleted");
+                                        serde_json::to_string(&serde_json::json!({
+                                            "type": "approval_policy_deleted",
+                                            "tool_name": tool_name,
+                                        }))
+                                        .unwrap_or_default()
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(%client_id, %tool_name, "delete_approval_policy failed: {e:#}");
+                                        serde_json::to_string(&serde_json::json!({
+                                            "type": "error",
+                                            "error": format!("failed to delete approval policy: {e}"),
+                                        }))
+                                        .unwrap_or_default()
+                                    }
+                                };
                                 if sink.send(Message::Text(reply)).await.is_err() {
                                     break;
                                 }
@@ -1190,7 +1233,7 @@ fn welcome(client_id: &str, head_seq: i64, sessions: &[serde_json::Value]) -> Me
             "sessions": sessions,
             "head_seq": head_seq,
         }))
-        .unwrap(),
+        .expect("static JSON serialization"),
     )
 }
 
@@ -1200,7 +1243,7 @@ fn rejected(reason: &str) -> Message {
             "type": "rejected",
             "reason": reason,
         }))
-        .unwrap(),
+        .expect("static JSON serialization"),
     )
 }
 

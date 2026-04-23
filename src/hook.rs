@@ -94,19 +94,27 @@ async fn handle_connection(
     approval_warn_before_secs: u64,
 ) -> Result<()> {
     let mut buf = String::new();
-    tokio::time::timeout(Duration::from_secs(5), stream.read_to_string(&mut buf))
-        .await
-        .context("hook request timed out after 5s")?
-        .context("failed to read hook request")?;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        (&mut stream).take(65536).read_to_string(&mut buf),
+    )
+    .await
+    .context("hook request timed out after 5s")?
+    .context("failed to read hook request")?;
 
     let req: HookRequest = serde_json::from_str(&buf).context("failed to parse hook request")?;
 
     // ── Policy check ─────────────────────────────────────────────────────────
     let policy_action = {
         let conn = db.lock().unwrap();
-        db::get_approval_policy(&conn, &req.tool_name)
-            .unwrap_or(None)
-            .unwrap_or_else(|| "prompt".to_string())
+        match db::get_approval_policy(&conn, &req.tool_name) {
+            Ok(Some(action)) => action,
+            Ok(None) => "prompt".to_string(),
+            Err(e) => {
+                tracing::error!(tool = %req.tool_name, "policy lookup failed: {e:#}");
+                "prompt".to_string()
+            }
+        }
     };
 
     if policy_action == "allow" {

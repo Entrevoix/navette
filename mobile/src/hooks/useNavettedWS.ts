@@ -4,12 +4,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import HmacSHA256 from 'crypto-js/hmac-sha256';
 import Hex from 'crypto-js/enc-hex';
+import * as Crypto from 'expo-crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, DeviceEntry, FileContentEvent, FileWriteResultEvent, ApprovalPolicy, PolicyAction } from '../types';
 
 const LAST_SEQ_KEY = 'navette_last_seq';
 
-const CLIENT_ID = `mobile-${Math.random().toString(36).slice(2, 8)}`;
+const CLIENT_ID = `mobile-${Crypto.randomUUID()}`;
 
 export interface NotifyConfig {
   topic: string;
@@ -109,9 +110,14 @@ export function useNavettedWS(): UseNavettedWSResult {
   const reconnectDelayRef = useRef(1000);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverConfigRef = useRef<ServerConfig | null>(null);
+  const sessionsLengthRef = useRef(0);
 
   // Derived: is any session running?
   const sessionStatus: SessionStatus = sessions.length > 0 ? 'running' : 'idle';
+
+  useEffect(() => {
+    sessionsLengthRef.current = sessions.length;
+  }, [sessions.length]);
 
   useEffect(() => {
     AsyncStorage.getItem(LAST_SEQ_KEY).then((val: string | null) => {
@@ -306,15 +312,21 @@ export function useNavettedWS(): UseNavettedWSResult {
   }, []);
 
   const getApprovalPolicies = useCallback(() => {
-    wsRef.current?.send(JSON.stringify({ type: 'get_approval_policies' }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'get_approval_policies' }));
+    }
   }, []);
 
   const setApprovalPolicyFn = useCallback((tool_name: string, action: PolicyAction) => {
-    wsRef.current?.send(JSON.stringify({ type: 'set_approval_policy', tool_name, action }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'set_approval_policy', tool_name, action }));
+    }
   }, []);
 
   const deleteApprovalPolicyFn = useCallback((tool_name: string) => {
-    wsRef.current?.send(JSON.stringify({ type: 'delete_approval_policy', tool_name }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'delete_approval_policy', tool_name }));
+    }
   }, []);
 
   const disconnect = useCallback(() => {
@@ -517,7 +529,7 @@ export function useNavettedWS(): UseNavettedWSResult {
         setReconnecting(false);
         setStatus('connected');
         AsyncStorage.setItem(LAST_SEQ_KEY, String(lastSeqRef.current));
-        if (sessions.length === 0) {
+        if (sessionsLengthRef.current === 0) {
           setPendingApprovals([]);
         }
         return;
@@ -693,7 +705,7 @@ export function useNavettedWS(): UseNavettedWSResult {
         connectWS(serverConfigRef.current, lastSeqRef.current);
       }, delay);
     };
-  }, [processEvent, sessions.length]);
+  }, [processEvent]);
 
   const connect = useCallback((config: ServerConfig) => {
     serverConfigRef.current = config;
