@@ -3,9 +3,11 @@
 
 import React, { useState } from 'react';
 import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -143,11 +145,45 @@ const tcStyles = StyleSheet.create({
 // EventLog — read-only scrollable event list (no input bar, no approvals)
 // ---------------------------------------------------------------------------
 
-interface EventLogProps {
-  events: EventFrame[];
+const MAX_SHARE_EVENTS = 500;
+
+function eventsToPlainText(events: EventFrame[]): string {
+  const capped = events.slice(0, MAX_SHARE_EVENTS);
+  const lines: string[] = [];
+  for (const frame of capped) {
+    const ev = frame.event;
+    if (ev.type === 'session_started') {
+      lines.push(`[${frame.ts}] session started`);
+    } else if (ev.type === 'session_ended') {
+      const e = ev as { type: string; ok: boolean };
+      lines.push(`[${frame.ts}] session ${e.ok ? 'done' : 'failed'}`);
+    } else if (ev.type === 'assistant') {
+      const ae = ev as AssistantEvent;
+      for (const block of ae.message.content) {
+        if (block.type === 'text') {
+          const text = (block as TextBlock).text.trim();
+          if (text) lines.push(`[${frame.ts}] assistant: ${text.slice(0, 200)}`);
+        } else if (block.type === 'tool_use') {
+          const tu = block as ToolUseBlock;
+          lines.push(`[${frame.ts}] tool: ${tu.name} ${summarizeInput(tu.name, tu.input)}`);
+        }
+      }
+    } else if (ev.type === 'tool_result') {
+      lines.push(`[${frame.ts}] result`);
+    }
+  }
+  if (events.length > MAX_SHARE_EVENTS) {
+    lines.push(`…${events.length - MAX_SHARE_EVENTS} more events omitted`);
+  }
+  return lines.join('\n');
 }
 
-export function EventLog({ events }: EventLogProps) {
+interface EventLogProps {
+  events: EventFrame[];
+  onClear?: () => void;
+}
+
+export function EventLog({ events, onClear }: EventLogProps) {
   if (events.length === 0) {
     return (
       <View style={elStyles.empty}>
@@ -155,6 +191,19 @@ export function EventLog({ events }: EventLogProps) {
       </View>
     );
   }
+
+  const handleShare = async () => {
+    const text = eventsToPlainText(events);
+    await Share.share({ message: text });
+  };
+
+  const handleClear = () => {
+    if (!onClear) return;
+    Alert.alert('Clear events', 'Remove all events from the log?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear', style: 'destructive', onPress: onClear },
+    ]);
+  };
 
   const resultMap = buildResultMap(events);
   const items: React.ReactNode[] = [];
@@ -225,13 +274,43 @@ export function EventLog({ events }: EventLogProps) {
   }
 
   return (
-    <ScrollView style={elStyles.scroll} contentContainerStyle={elStyles.content}>
-      {items}
-    </ScrollView>
+    <View style={elStyles.wrapper}>
+      <View style={elStyles.actionBar}>
+        <Pressable onPress={handleShare} style={elStyles.actionBtn}>
+          <Text style={elStyles.actionText}>Share</Text>
+        </Pressable>
+        {onClear && (
+          <Pressable onPress={handleClear} style={elStyles.actionBtn}>
+            <Text style={[elStyles.actionText, elStyles.clearText]}>Clear</Text>
+          </Pressable>
+        )}
+      </View>
+      <ScrollView style={elStyles.scroll} contentContainerStyle={elStyles.content}>
+        {items}
+      </ScrollView>
+    </View>
   );
 }
 
 const elStyles = StyleSheet.create({
+  wrapper: { flex: 1 },
+  actionBar: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e1e1e',
+  },
+  actionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+  },
+  actionText: { color: '#9ca3af', fontSize: 12, fontWeight: '600' },
+  clearText: { color: '#f87171' },
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24, gap: 10 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },

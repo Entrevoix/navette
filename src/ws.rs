@@ -359,6 +359,7 @@ where
                                     let session_id = new_session_id();
                                     let (kill_tx, kill_rx) = oneshot::channel::<()>();
 
+                                    let (pty_input_tx, pty_input_rx) = tokio::sync::mpsc::channel::<String>(32);
                                     sessions.lock().await.insert(session_id.clone(), crate::SessionEntry {
                                         prompt: prompt.to_string(),
                                         container: container.clone(),
@@ -368,6 +369,7 @@ where
                                         input_tokens: Arc::new(AtomicU64::new(0)),
                                         output_tokens: Arc::new(AtomicU64::new(0)),
                                         cache_read_tokens: Arc::new(AtomicU64::new(0)),
+                                        pty_tx: Some(pty_input_tx),
                                     });
                                     crate::emit_session_list_changed(&sessions, &events_tx).await;
 
@@ -394,6 +396,7 @@ where
                                         events_tx.clone(),
                                         kill_rx,
                                         run_token,
+                                        pty_input_rx,
                                     ));
                                     tracing::info!(%client_id, %session_id, "spawned session");
 
@@ -1200,6 +1203,124 @@ where
                                 if sink.send(Message::Text(reply)).await.is_err() {
                                     break;
                                 }
+                            } else if msg_type == "list_containers" {
+                                let response = tokio::process::Command::new("distrobox")
+                                    .args(["list", "--no-color"])
+                                    .output()
+                                    .await;
+                                let containers = match response {
+                                    Ok(output) => {
+                                        let stdout = String::from_utf8_lossy(&output.stdout);
+                                        let mut list = vec![serde_json::json!({
+                                            "name": "",
+                                            "display": "host (no container)",
+                                            "status": "running",
+                                            "image": "",
+                                        })];
+                                        for line in stdout.lines().skip(1) {
+                                            let cols: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+                                            if cols.len() >= 3 {
+                                                list.push(serde_json::json!({
+                                                    "name": cols[1],
+                                                    "status": cols[2],
+                                                    "image": cols.get(3).unwrap_or(&""),
+                                                }));
+                                            }
+                                        }
+                                        serde_json::json!({ "type": "containers_list", "containers": list })
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(%client_id, "list_containers failed: {e}");
+                                        serde_json::json!({
+                                            "type": "containers_list",
+                                            "containers": [{
+                                                "name": "",
+                                                "display": "host (no container)",
+                                                "status": "running",
+                                                "image": "",
+                                            }],
+                                            "error": format!("distrobox not available: {e}"),
+                                        })
+                                    }
+                                };
+                                if let Ok(s) = serde_json::to_string(&containers) {
+                                    if sink.send(Message::Text(s)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "send_text" {
+                                let session_id = v.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+                                let text = v.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                if session_id.is_empty() || text.is_empty() {
+                                    let reply = serde_json::to_string(&serde_json::json!({
+                                        "type": "error",
+                                        "message": "session_id and text are required",
+                                    })).unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                } else {
+                                    let sent = if let Some(entry) = sessions.lock().await.get(session_id) {
+                                        if let Some(tx) = &entry.pty_tx {
+                                            tx.try_send(text.to_string()).is_ok()
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    };
+                                    let reply = serde_json::to_string(&serde_json::json!({
+                                        "type": "text_sent",
+                                        "session_id": session_id,
+                                        "ok": sent,
+                                    })).unwrap_or_default();
+                                    if sink.send(Message::Text(reply)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "list_mcp_servers" {
+                                let response = tokio::task::spawn_blocking(|| {
+                                    let home = std::env::var("HOME").unwrap_or_default();
+                                    let settings_path = std::path::PathBuf::from(&home)
+                                        .join(".claude")
+                                        .join("settings.json");
+                                    let mut servers = Vec::new();
+                                    if let Ok(content) = std::fs::read_to_string(&settings_path) {
+                                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                                            if let Some(mcp) = parsed.get("mcpServers").and_then(|v| v.as_object()) {
+                                                for (name, cfg) in mcp {
+                                                    let command = cfg.get("command")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("");
+                                                    let args = cfg.get("args")
+                                                        .and_then(|v| v.as_array())
+                                                        .map(|a| a.len())
+                                                        .unwrap_or(0);
+                                                    let env_count = cfg.get("env")
+                                                        .and_then(|v| v.as_object())
+                                                        .map(|e| e.len())
+                                                        .unwrap_or(0);
+                                                    servers.push(serde_json::json!({
+                                                        "name": name,
+                                                        "command": command,
+                                                        "args_count": args,
+                                                        "env_count": env_count,
+                                                        "status": "configured",
+                                                    }));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    servers.sort_by(|a, b| {
+                                        a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+                                    });
+                                    serde_json::json!({ "type": "mcp_servers_list", "servers": servers })
+                                }).await.unwrap_or_else(|_| serde_json::json!({"type": "error", "error": "task panicked"}));
+                                if let Ok(s) = serde_json::to_string(&response) {
+                                    if sink.send(Message::Text(s)).await.is_err() {
+                                        break;
+                                    }
+                                }
                             } else {
                                 handle_input(&v, &client_id, &pending, &buffered).await;
                             }
@@ -1380,6 +1501,8 @@ mod tests {
             },
             tls_cert_path: None,
             tls_key_path: None,
+            webhook_url: None,
+            auto_compact_threshold: None,
         };
         assert!(load_tls_acceptor(&cfg).unwrap().is_none());
     }
@@ -1407,6 +1530,8 @@ mod tests {
             },
             tls_cert_path: Some(cert.to_string_lossy().into_owned()),
             tls_key_path: Some(key.to_string_lossy().into_owned()),
+            webhook_url: None,
+            auto_compact_threshold: None,
         };
         assert!(load_tls_acceptor(&cfg).unwrap().is_some());
 

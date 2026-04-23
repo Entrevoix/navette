@@ -38,6 +38,7 @@ pub async fn spawn_and_process(
     output_tokens: Arc<AtomicU64>,
     cache_read_tokens: Arc<AtomicU64>,
     secrets: &HashMap<String, String>,
+    mut pty_input_rx: tokio::sync::mpsc::Receiver<String>,
 ) -> Result<()> {
     if !dangerously_skip_permissions {
         write_hook_settings().context("failed to write hook settings")?;
@@ -134,6 +135,26 @@ pub async fn spawn_and_process(
                 }
                 Err(_) => break,
             }
+        }
+    });
+
+    // PTY stdin writer: bridge async channel to blocking writes.
+    let mut writer = pair
+        .master
+        .take_writer()
+        .context("failed to take PTY master writer")?;
+    tokio::task::spawn_blocking(move || {
+        use std::io::Write;
+        while let Some(text) = pty_input_rx.blocking_recv() {
+            let with_newline = if text.ends_with('\n') {
+                text
+            } else {
+                format!("{text}\n")
+            };
+            if writer.write_all(with_newline.as_bytes()).is_err() {
+                break;
+            }
+            let _ = writer.flush();
         }
     });
 

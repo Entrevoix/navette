@@ -185,3 +185,17 @@ export interface FileWriteResultEvent {
   ok: boolean;
   error?: string;
 }
+
+export interface ContainerInfo {
+  name: string;
+  status: string;
+  image: string;
+  display?: string;
+}
+
+export interface McpServerInfo {
+  name: string;
+  command: string;
+  args_count: number;
+  env_count: number;
+}

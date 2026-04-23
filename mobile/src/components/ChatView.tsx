@@ -1,10 +1,14 @@
 // Copyright (C) 2025 Entrevoix, Inc.
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
+  RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -12,8 +16,10 @@ import {
 } from 'react-native';
 import { ApprovalCard } from './ApprovalCard';
 import { BatchApprovalBar } from './BatchApprovalBar';
+import { MessageBubble } from './MessageBubble';
 import { QuickResponseButtons } from './QuickResponseButtons';
 import { ToolCallRow } from './EventLog';
+import { exportTranscriptMarkdown } from '../utils/transcript';
 import {
   AssistantEvent,
   EventFrame,
@@ -31,6 +37,7 @@ interface ChatViewProps {
   activeSessionId?: string | null;
   sessionRunning?: boolean;
   onSendInput?: (text: string) => void;
+  onRefresh?: () => void;
 }
 
 function buildResultMap(events: EventFrame[]): Map<string, string> {
@@ -68,7 +75,7 @@ function PendingToolCallRow({
   );
 }
 
-export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, viewStartSeq, activeSessionId, sessionRunning, onSendInput }: ChatViewProps) {
+export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, viewStartSeq, activeSessionId, sessionRunning, onSendInput, onRefresh }: ChatViewProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [inputText, setInputText] = useState('');
@@ -132,9 +139,7 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
           const tb = block as TextBlock;
           if (!tb.text.trim()) continue;
           items.push(
-            <Text key={`t-${frame.seq}-${i}`} selectable style={styles.assistantText}>
-              {tb.text}
-            </Text>
+            <MessageBubble key={`t-${frame.seq}-${i}`} text={tb.text} role="assistant" />
           );
         } else if (block.type === 'tool_use') {
           const tb = block as ToolUseBlock;
@@ -189,11 +194,32 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
   const hasPendingApprovals = pendingApprovals.length > 0;
   const showInputBar = sessionRunning && !!activeSessionId && !!onSendInput;
 
+  const handleCopyAll = async () => {
+    try {
+      const md = exportTranscriptMarkdown(visibleEvents, activeSessionId ?? 'unknown');
+      await Clipboard.setStringAsync(md);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  const handleShareAll = async () => {
+    try {
+      const md = exportTranscriptMarkdown(visibleEvents, activeSessionId ?? 'unknown');
+      await Share.share({ message: md });
+    } catch { /* user cancelled share sheet */ }
+  };
+
   const handleSendInput = () => {
     const text = inputText.trim();
     if (!text || !onSendInput) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onSendInput(text);
     setInputText('');
+  };
+
+  const handleCompact = () => {
+    if (!onSendInput) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onSendInput('/compact');
   };
 
   const inputBar = showInputBar ? (
@@ -206,8 +232,7 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
         placeholderTextColor="#52525b"
         autoCorrect={false}
         editable={!hasPendingApprovals}
-        returnKeyType="send"
-        onSubmitEditing={handleSendInput}
+        multiline
         blurOnSubmit={false}
       />
       <Pressable
@@ -257,6 +282,7 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={onRefresh ? <RefreshControl refreshing={false} onRefresh={onRefresh} tintColor="#4ade80" /> : undefined}
       >
         {hasHistory && (
           <Pressable onPress={() => setShowHistory(x => !x)} style={styles.historyToggle}>
@@ -267,6 +293,21 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
         )}
         {items}
       </ScrollView>
+      {visibleEvents.length > 0 && (
+        <View style={styles.sessionActions}>
+          <Pressable onPress={handleCopyAll} style={styles.sessionBtn}>
+            <Text style={styles.sessionBtnText}>Copy All</Text>
+          </Pressable>
+          <Pressable onPress={handleShareAll} style={styles.sessionBtn}>
+            <Text style={styles.sessionBtnText}>Share</Text>
+          </Pressable>
+          {sessionRunning && onSendInput && (
+            <Pressable onPress={handleCompact} style={[styles.sessionBtn, styles.compactBtn]}>
+              <Text style={styles.compactBtnText}>Compact</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
       {inputBar}
     </View>
   );
@@ -281,7 +322,7 @@ const styles = StyleSheet.create({
   emptyText: { color: '#71717a', fontSize: 14 },
   inputBar: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -296,9 +337,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2a2a2a',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     color: '#f0f0f0',
     fontSize: 14,
+    minHeight: 44,
+    maxHeight: 120,
+    textAlignVertical: 'top',
   },
   inputFieldDisabled: {
     opacity: 0.4,
@@ -306,8 +350,11 @@ const styles = StyleSheet.create({
   sendBtn: {
     backgroundColor: '#1e3a5f',
     borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 16,
+    minHeight: 44,
+    minWidth: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#2d5a9e',
   },
@@ -339,11 +386,25 @@ const styles = StyleSheet.create({
     maxWidth: '88%',
   },
   userText: { color: '#93c5fd', fontSize: 14, lineHeight: 20 },
-  assistantText: {
-    color: '#d4d4d8',
-    fontSize: 14,
-    lineHeight: 22,
+  sessionActions: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e1e',
+    backgroundColor: '#0a0a0a',
   },
+  sessionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+  },
+  sessionBtnText: { color: '#9ca3af', fontSize: 12, fontWeight: '600' },
+  compactBtn: { borderColor: '#1e3a5f' },
+  compactBtnText: { color: '#93c5fd', fontSize: 12, fontWeight: '600' },
   historyToggle: { alignItems: 'center', paddingVertical: 6 },
   historyToggleText: { color: '#52525b', fontSize: 11 },
 });
