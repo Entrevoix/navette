@@ -58,12 +58,10 @@ fn main() {
             process::exit(2);
         });
 
-    let exit_code = rt
-        .block_on(run(stdin_buf))
-        .unwrap_or_else(|e| {
-            eprintln!("navetted-hook: {e:#}");
-            2
-        });
+    let exit_code = rt.block_on(run(stdin_buf)).unwrap_or_else(|e| {
+        eprintln!("navetted-hook: {e:#}");
+        2
+    });
 
     process::exit(exit_code);
 }
@@ -136,7 +134,6 @@ async fn run(stdin_buf: String) -> Result<i32> {
 }
 
 fn socket_path() -> String {
-    let runtime_dir =
-        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     format!("{runtime_dir}/navetted/hook.sock")
 }

@@ -105,12 +105,8 @@ pub fn events_since(conn: &Connection, since: i64) -> Result<Vec<(i64, f64, Stri
 
 /// Return the highest seq currently in the DB (0 if empty).
 pub fn head_seq(conn: &Connection) -> Result<i64> {
-    conn.query_row(
-        "SELECT COALESCE(MAX(seq), 0) FROM events",
-        [],
-        |r| r.get(0),
-    )
-    .context("head_seq failed")
+    conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM events", [], |r| r.get(0))
+        .context("head_seq failed")
 }
 
 /// Return distinct sessions ordered by most recent activity, up to 50.
@@ -219,17 +215,19 @@ pub fn get_pending_scheduled_sessions(conn: &Connection) -> Result<Vec<serde_jso
         .context("collect get_pending_scheduled_sessions")?;
     Ok(rows
         .into_iter()
-        .map(|(id, prompt, container, command, scheduled_at, created_at)| {
-            serde_json::json!({
-                "id": id,
-                "prompt": prompt,
-                "container": container,
-                "command": command,
-                "scheduled_at": scheduled_at,
-                "created_at": created_at,
-                "fired": false,
-            })
-        })
+        .map(
+            |(id, prompt, container, command, scheduled_at, created_at)| {
+                serde_json::json!({
+                    "id": id,
+                    "prompt": prompt,
+                    "container": container,
+                    "command": command,
+                    "scheduled_at": scheduled_at,
+                    "created_at": created_at,
+                    "fired": false,
+                })
+            },
+        )
         .collect())
 }
 
@@ -278,17 +276,19 @@ pub fn list_scheduled_sessions(conn: &Connection) -> Result<Vec<serde_json::Valu
         .context("collect list_scheduled_sessions")?;
     Ok(rows
         .into_iter()
-        .map(|(id, prompt, container, command, scheduled_at, created_at, fired)| {
-            serde_json::json!({
-                "id": id,
-                "prompt": prompt,
-                "container": container,
-                "command": command,
-                "scheduled_at": scheduled_at,
-                "created_at": created_at,
-                "fired": fired != 0,
-            })
-        })
+        .map(
+            |(id, prompt, container, command, scheduled_at, created_at, fired)| {
+                serde_json::json!({
+                    "id": id,
+                    "prompt": prompt,
+                    "container": container,
+                    "command": command,
+                    "scheduled_at": scheduled_at,
+                    "created_at": created_at,
+                    "fired": fired != 0,
+                })
+            },
+        )
         .collect())
 }
 
@@ -368,8 +368,11 @@ pub fn update_prompt(
 
 /// Delete a saved prompt by id.
 pub fn delete_prompt(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("DELETE FROM prompt_library WHERE id = ?1", rusqlite::params![id])
-        .context("delete_prompt failed")?;
+    conn.execute(
+        "DELETE FROM prompt_library WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .context("delete_prompt failed")?;
     Ok(())
 }
 
@@ -751,14 +754,30 @@ mod tests {
         let conn = in_memory_db();
 
         insert_prompt(&conn, "p1", "Fix tests", "cargo test --all", "[]", 1000.0).unwrap();
-        insert_prompt(&conn, "p2", "Deploy", "cargo build --release", r#"["ops"]"#, 2000.0).unwrap();
+        insert_prompt(
+            &conn,
+            "p2",
+            "Deploy",
+            "cargo build --release",
+            r#"["ops"]"#,
+            2000.0,
+        )
+        .unwrap();
 
         let all = list_prompts(&conn).unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(all[0]["id"], "p2");
         assert_eq!(all[1]["id"], "p1");
 
-        update_prompt(&conn, "p1", "Fix all tests", "cargo test", r#"["dev"]"#, 3000.0).unwrap();
+        update_prompt(
+            &conn,
+            "p1",
+            "Fix all tests",
+            "cargo test",
+            r#"["dev"]"#,
+            3000.0,
+        )
+        .unwrap();
         let updated = list_prompts(&conn).unwrap();
         assert_eq!(updated[0]["id"], "p1");
         assert_eq!(updated[0]["title"], "Fix all tests");
@@ -816,7 +835,9 @@ mod tests {
     #[test]
     fn secret_not_found_returns_none() {
         let conn = in_memory_db();
-        assert!(get_secret_encrypted(&conn, "NONEXISTENT").unwrap().is_none());
+        assert!(get_secret_encrypted(&conn, "NONEXISTENT")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

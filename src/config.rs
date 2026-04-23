@@ -107,7 +107,10 @@ pub fn load_or_create() -> Result<Config> {
             .to_string();
         let ntfy_topic = if ntfy_topic_raw.is_empty() {
             let topic = random_alphanumeric(32);
-            let updated = format!("{}ntfy_topic = \"{topic}\"\n", content.trim_end_matches('\n').to_string() + "\n");
+            let updated = format!(
+                "{}ntfy_topic = \"{topic}\"\n",
+                content.trim_end_matches('\n').to_string() + "\n"
+            );
             write_config_atomic(&path, &updated)
                 .with_context(|| format!("failed to persist ntfy_topic to {}", path.display()))?;
             tracing::info!(topic = %topic, url = %ntfy_base_url, "generated ntfy topic (subscribe at {ntfy_base_url}/{topic})");
@@ -139,8 +142,7 @@ pub fn load_or_create() -> Result<Config> {
     let ntfy_topic = random_alphanumeric(32);
 
     let dir = path.parent().context("config path has no parent")?;
-    std::fs::create_dir_all(dir)
-        .with_context(|| format!("failed to create {}", dir.display()))?;
+    std::fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))?;
 
     let cert_path = dir.join("cert.pem");
     let key_path = dir.join("key.pem");
@@ -203,23 +205,26 @@ fn write_config_atomic(path: &PathBuf, content: &str) -> Result<()> {
             .mode(0o600)
             .open(&tmp)
             .with_context(|| format!("failed to open tmp config {}", tmp.display()))?;
-        f.write_all(content.as_bytes()).context("failed to write tmp config")?;
+        f.write_all(content.as_bytes())
+            .context("failed to write tmp config")?;
         f.sync_all().context("failed to fsync tmp config")?;
     }
     std::fs::rename(&tmp, path)
         .with_context(|| format!("failed to rename {} → {}", tmp.display(), path.display()))
 }
 
-fn generate_self_signed_cert(cert_path: &std::path::Path, key_path: &std::path::Path) -> Result<()> {
+fn generate_self_signed_cert(
+    cert_path: &std::path::Path,
+    key_path: &std::path::Path,
+) -> Result<()> {
     use std::io::Write;
 
     let local_ip = local_ip_address::local_ip()
         .map(|ip| ip.to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string());
 
-    let mut params = rcgen::CertificateParams::new(vec![
-        "localhost".to_string(),
-    ]).context("failed to create cert params")?;
+    let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()])
+        .context("failed to create cert params")?;
     params.subject_alt_names.push(rcgen::SanType::IpAddress(
         "127.0.0.1".parse().expect("valid literal"),
     ));
@@ -228,7 +233,9 @@ fn generate_self_signed_cert(cert_path: &std::path::Path, key_path: &std::path::
     }
 
     let key_pair = rcgen::KeyPair::generate().context("failed to generate key pair")?;
-    let cert = params.self_signed(&key_pair).context("failed to generate self-signed cert")?;
+    let cert = params
+        .self_signed(&key_pair)
+        .context("failed to generate self-signed cert")?;
 
     let mut cert_file = std::fs::OpenOptions::new()
         .write(true)
@@ -237,7 +244,9 @@ fn generate_self_signed_cert(cert_path: &std::path::Path, key_path: &std::path::
         .mode(0o600)
         .open(cert_path)
         .with_context(|| format!("failed to create {}", cert_path.display()))?;
-    cert_file.write_all(cert.pem().as_bytes()).context("failed to write cert")?;
+    cert_file
+        .write_all(cert.pem().as_bytes())
+        .context("failed to write cert")?;
 
     let mut key_file = std::fs::OpenOptions::new()
         .write(true)
@@ -246,7 +255,9 @@ fn generate_self_signed_cert(cert_path: &std::path::Path, key_path: &std::path::
         .mode(0o600)
         .open(key_path)
         .with_context(|| format!("failed to create {}", key_path.display()))?;
-    key_file.write_all(key_pair.serialize_pem().as_bytes()).context("failed to write key")?;
+    key_file
+        .write_all(key_pair.serialize_pem().as_bytes())
+        .context("failed to write key")?;
 
     tracing::info!(
         cert = %cert_path.display(),

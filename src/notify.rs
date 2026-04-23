@@ -33,12 +33,19 @@ impl NotifyClient {
         }
     }
 
-    pub async fn publish(&self, title: &str, body: &str, priority: &str, tags: &[&str]) -> Result<()> {
+    pub async fn publish(
+        &self,
+        title: &str,
+        body: &str,
+        priority: &str,
+        tags: &[&str],
+    ) -> Result<()> {
         if self.topic.is_empty() {
             return Ok(());
         }
         let url = format!("{}/{}", self.base_url, self.topic);
-        let mut builder = self.client
+        let mut builder = self
+            .client
             .post(&url)
             .header("Title", title)
             .header("Priority", priority)
@@ -53,7 +60,10 @@ impl NotifyClient {
             if self.base_url.starts_with("https://") {
                 builder = builder.header("Authorization", format!("Bearer {}", self.token));
             } else {
-                tracing::warn!("ntfy_token not sent: refusing to send credentials over non-HTTPS URL ({})", self.base_url);
+                tracing::warn!(
+                    "ntfy_token not sent: refusing to send credentials over non-HTTPS URL ({})",
+                    self.base_url
+                );
             }
         }
 

@@ -99,8 +99,7 @@ async fn handle_connection(
         .context("hook request timed out after 5s")?
         .context("failed to read hook request")?;
 
-    let req: HookRequest =
-        serde_json::from_str(&buf).context("failed to parse hook request")?;
+    let req: HookRequest = serde_json::from_str(&buf).context("failed to parse hook request")?;
 
     tracing::info!(tool_use_id = %req.tool_use_id, tool = %req.tool_name, "approval pending");
 
@@ -112,13 +111,17 @@ async fn handle_connection(
         pending.lock().await.insert(req.tool_use_id.clone(), tx);
 
         let expires_at = unix_ts() + approval_ttl_secs as f64;
-        persist_and_emit(&db, &events_tx, serde_json::json!({
-            "type": "approval_pending",
-            "tool_use_id": req.tool_use_id,
-            "tool_name": req.tool_name,
-            "session_id": req.session_id,
-            "expires_at": expires_at,
-        }));
+        persist_and_emit(
+            &db,
+            &events_tx,
+            serde_json::json!({
+                "type": "approval_pending",
+                "tool_use_id": req.tool_use_id,
+                "tool_name": req.tool_name,
+                "session_id": req.session_id,
+                "expires_at": expires_at,
+            }),
+        );
 
         // Warning task with cancellation: cancelled if user decides before the deadline.
         let warn_delay = approval_ttl_secs.saturating_sub(approval_warn_before_secs);
@@ -148,12 +151,16 @@ async fn handle_connection(
             }
             _ => {
                 pending.lock().await.remove(&req.tool_use_id);
-                persist_and_emit(&db, &events_tx, serde_json::json!({
-                    "type": "approval_expired",
-                    "tool_use_id": req.tool_use_id,
-                    "session_id": req.session_id,
-                    "auto_decision": "deny",
-                }));
+                persist_and_emit(
+                    &db,
+                    &events_tx,
+                    serde_json::json!({
+                        "type": "approval_expired",
+                        "tool_use_id": req.tool_use_id,
+                        "session_id": req.session_id,
+                        "auto_decision": "deny",
+                    }),
+                );
                 tracing::info!(tool_use_id = %req.tool_use_id, "approval timed out — auto-deny");
                 Decision::Deny
             }

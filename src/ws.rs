@@ -7,12 +7,12 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result};
-use ring::rand::SecureRandom;
-use subtle::ConstantTimeEq;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
+use ring::rand::SecureRandom;
 use rusqlite::Connection;
 use serde_json::Value;
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, oneshot};
@@ -48,13 +48,13 @@ pub fn load_tls_acceptor(cfg: &Config) -> Result<Option<TlsAcceptor>> {
         .context("no private key found in PEM file")?;
 
     let tls_config = rustls::ServerConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .context("failed to set TLS protocol versions")?
-        .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .context("failed to build TLS server config")?;
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .context("failed to set TLS protocol versions")?
+    .with_no_client_auth()
+    .with_single_cert(certs, key)
+    .context("failed to build TLS server config")?;
 
     Ok(Some(TlsAcceptor::from(Arc::new(tls_config))))
 }
@@ -98,10 +98,17 @@ pub async fn serve(
                             Ok(tls_stream) => {
                                 handle_ws(
                                     tls_stream,
-                                    token, db, pending, buffered,
-                                    events_rx, events_tx, sessions,
-                                    max_concurrent, cfg,
-                                ).await
+                                    token,
+                                    db,
+                                    pending,
+                                    buffered,
+                                    events_rx,
+                                    events_tx,
+                                    sessions,
+                                    max_concurrent,
+                                    cfg,
+                                )
+                                .await
                             }
                             Err(e) => {
                                 tracing::error!(%peer, "TLS handshake failed: {e}");
@@ -111,10 +118,17 @@ pub async fn serve(
                     } else {
                         handle_ws(
                             stream,
-                            token, db, pending, buffered,
-                            events_rx, events_tx, sessions,
-                            max_concurrent, cfg,
-                        ).await
+                            token,
+                            db,
+                            pending,
+                            buffered,
+                            events_rx,
+                            events_tx,
+                            sessions,
+                            max_concurrent,
+                            cfg,
+                        )
+                        .await
                     };
                     if let Err(e) = result {
                         tracing::error!("WS connection error: {e:#}");
@@ -150,9 +164,7 @@ where
         Some(Ok(Message::Text(txt))) => {
             let msg: Value = serde_json::from_str(&txt).context("invalid hello JSON")?;
             if msg.get("type").and_then(|v| v.as_str()) != Some("hello") {
-                let _ = sink
-                    .send(rejected("expected hello as first message"))
-                    .await;
+                let _ = sink.send(rejected("expected hello as first message")).await;
                 return Ok(());
             }
 
@@ -174,14 +186,11 @@ where
                     Some(Ok(Message::Text(resp_txt))) => {
                         let resp: Value = serde_json::from_str(&resp_txt)
                             .context("invalid challenge_response JSON")?;
-                        if resp.get("type").and_then(|v| v.as_str())
-                            != Some("challenge_response")
-                        {
+                        if resp.get("type").and_then(|v| v.as_str()) != Some("challenge_response") {
                             let _ = sink.send(rejected("expected challenge_response")).await;
                             return Ok(());
                         }
-                        let provided_hmac =
-                            resp.get("hmac").and_then(|v| v.as_str()).unwrap_or("");
+                        let provided_hmac = resp.get("hmac").and_then(|v| v.as_str()).unwrap_or("");
                         if !verify_hmac(&token, &nonce, provided_hmac) {
                             let _ = sink.send(rejected("bad hmac")).await;
                             return Ok(());
@@ -191,7 +200,9 @@ where
                 }
             } else {
                 // Legacy v1: plaintext token (backward compat).
-                tracing::warn!("v1 plaintext token auth used — upgrade client to v2 challenge-response");
+                tracing::warn!(
+                    "v1 plaintext token auth used — upgrade client to v2 challenge-response"
+                );
                 let provided = msg.get("token").and_then(|v| v.as_str()).unwrap_or("");
                 if !constant_time_token_eq(provided, &token) {
                     let _ = sink.send(rejected("bad token")).await;
@@ -274,9 +285,8 @@ where
             .await
             .context("replay send failed")?;
     }
-    let caught_up = serde_json::to_string(
-        &serde_json::json!({"type": "caught-up", "seq": last_seq}),
-    )?;
+    let caught_up =
+        serde_json::to_string(&serde_json::json!({"type": "caught-up", "seq": last_seq}))?;
     sink.send(Message::Text(caught_up))
         .await
         .context("caught-up send failed")?;

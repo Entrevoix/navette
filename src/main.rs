@@ -136,18 +136,30 @@ async fn main() -> Result<()> {
                     match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
                         "approval_pending" => {
                             let tool = v["tool_name"].as_str().unwrap_or("tool");
-                            let _ = notify.publish("Claude needs approval", tool, "default", &["warning"]).await;
-                            let _ = notify.send_telegram(&format!("⚠️ Claude needs approval: {tool}")).await;
+                            let _ = notify
+                                .publish("Claude needs approval", tool, "default", &["warning"])
+                                .await;
+                            let _ = notify
+                                .send_telegram(&format!("⚠️ Claude needs approval: {tool}"))
+                                .await;
                         }
                         "approval_warning" => {
                             let secs = v["seconds_remaining"].as_u64().unwrap_or(30);
                             let body = format!("Expires in {secs}s");
-                            let _ = notify.publish("Approval expiring", &body, "high", &["stopwatch"]).await;
-                            let _ = notify.send_telegram(&format!("⏱️ Approval expiring in {secs}s")).await;
+                            let _ = notify
+                                .publish("Approval expiring", &body, "high", &["stopwatch"])
+                                .await;
+                            let _ = notify
+                                .send_telegram(&format!("⏱️ Approval expiring in {secs}s"))
+                                .await;
                         }
                         "approval_expired" => {
-                            let _ = notify.publish("Auto-denied", "Approval timed out", "default", &[]).await;
-                            let _ = notify.send_telegram("❌ Approval timed out and was auto-denied").await;
+                            let _ = notify
+                                .publish("Auto-denied", "Approval timed out", "default", &[])
+                                .await;
+                            let _ = notify
+                                .send_telegram("❌ Approval timed out and was auto-denied")
+                                .await;
                         }
                         "session_ended" => {
                             let ok = v["ok"].as_bool().unwrap_or(false);
@@ -157,7 +169,9 @@ async fn main() -> Result<()> {
                                 ("Session failed", "x", "✗")
                             };
                             let _ = notify.publish(title, "", "low", &[tag]).await;
-                            let _ = notify.send_telegram(&format!("{emoji} Session {title}")).await;
+                            let _ = notify
+                                .send_telegram(&format!("{emoji} Session {title}"))
+                                .await;
                         }
                         _ => {}
                     }
@@ -319,7 +333,11 @@ pub async fn run_session(
     let (input_tokens, output_tokens, cache_read_tokens) = {
         let map = sessions.lock().await;
         match map.get(&session_id) {
-            Some(e) => (e.input_tokens.clone(), e.output_tokens.clone(), e.cache_read_tokens.clone()),
+            Some(e) => (
+                e.input_tokens.clone(),
+                e.output_tokens.clone(),
+                e.cache_read_tokens.clone(),
+            ),
             None => (
                 Arc::new(AtomicU64::new(0)),
                 Arc::new(AtomicU64::new(0)),
