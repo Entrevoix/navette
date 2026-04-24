@@ -14,6 +14,7 @@ pub struct NotifyConfig {
     pub ntfy_token: String,
     pub telegram_bot_token: String,
     pub telegram_chat_id: String,
+    pub webhook_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -26,8 +27,6 @@ pub struct Config {
     pub notify: NotifyConfig,
     pub tls_cert_path: Option<String>,
     pub tls_key_path: Option<String>,
-    #[allow(dead_code)]
-    pub webhook_url: Option<String>,
     #[allow(dead_code)]
     pub auto_compact_threshold: Option<u8>,
 }
@@ -150,10 +149,10 @@ pub fn load_or_create() -> Result<Config> {
                 ntfy_token,
                 telegram_bot_token,
                 telegram_chat_id,
+                webhook_url,
             },
             tls_cert_path,
             tls_key_path,
-            webhook_url,
             auto_compact_threshold,
         });
     }
@@ -207,10 +206,10 @@ pub fn load_or_create() -> Result<Config> {
             ntfy_token: String::new(),
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
+            webhook_url: None,
         },
         tls_cert_path: Some(cert_str.into_owned()),
         tls_key_path: Some(key_str.into_owned()),
-        webhook_url: None,
         auto_compact_threshold: None,
     })
 }
@@ -325,10 +324,10 @@ mod tests {
                 ntfy_token: String::new(),
                 telegram_bot_token: String::new(),
                 telegram_chat_id: String::new(),
+                webhook_url: None,
             },
             tls_cert_path: None,
             tls_key_path: None,
-            webhook_url: None,
             auto_compact_threshold: None,
         }
     }

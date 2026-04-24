@@ -182,6 +182,7 @@ async fn main() -> Result<()> {
                             let _ = notify
                                 .send_telegram(&format!("{emoji} Session {title}"))
                                 .await;
+                            notify.publish_webhook(&v).await;
                         }
                         _ => {}
                     }

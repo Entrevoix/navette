@@ -1528,10 +1528,10 @@ mod tests {
                 ntfy_token: String::new(),
                 telegram_bot_token: String::new(),
                 telegram_chat_id: String::new(),
+                webhook_url: None,
             },
             tls_cert_path: None,
             tls_key_path: None,
-            webhook_url: None,
             auto_compact_threshold: None,
         };
         assert!(load_tls_acceptor(&cfg).unwrap().is_none());
@@ -1557,10 +1557,10 @@ mod tests {
                 ntfy_token: String::new(),
                 telegram_bot_token: String::new(),
                 telegram_chat_id: String::new(),
+                webhook_url: None,
             },
             tls_cert_path: Some(cert.to_string_lossy().into_owned()),
             tls_key_path: Some(key.to_string_lossy().into_owned()),
-            webhook_url: None,
             auto_compact_threshold: None,
         };
         assert!(load_tls_acceptor(&cfg).unwrap().is_some());

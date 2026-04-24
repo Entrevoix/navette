@@ -1,5 +1,44 @@
 # Review Log
 
+## Plan 5: navette-ux-fixes
+
+**Branch**: `feat/navette-ux-fixes`
+**Date**: 2026-04-24
+**Status**: PENDING PR
+
+### Scope
+
+19 of 24 tasks were already implemented. Remaining gap: `webhook_url` config field existed but was never wired into the notification handler. Implemented webhook POST on `session_ended` events.
+
+### Devil's Advocate Review (5 rounds)
+
+| Topic | Rounds | Action Items |
+|---|---|---|
+| Correctness | 1 | 0 |
+| Error handling | 1 | 1 |
+| Security | 1 | 0 |
+| Maintainability | 1 | 0 |
+| Testing gaps | 1 | 1 |
+| **Total** | **5** | **2** |
+
+### Action Items (2) — All Fixed
+
+1. **LOW** — `publish_webhook` used identical log message for HTTP status errors and connection errors. Changed HTTP status branch to `"webhook POST returned error status: {e}"` (Error handling)
+2. **LOW** — No tests for `publish_webhook` early-return paths. Added 2 async smoke tests: `publish_webhook_skips_when_url_is_none`, `publish_webhook_skips_when_url_is_empty` (Testing gaps)
+
+### Deferred (not fixed)
+
+- No retry/backoff on webhook failures — same fire-and-forget pattern as ntfy and Telegram; cross-cutting concern for a future PR (LOW)
+- Webhook only fires on `session_ended`, not approval events — intentional per plan scope (LOW)
+
+### Validation
+
+- cargo build: PASS
+- cargo test: 65/65 PASS (2 new webhook tests)
+- cargo clippy: PASS (zero warnings)
+
+---
+
 ## Plan 4: android-aab-release-build
 
 **Branch**: `feat/android-aab-release-build`
