@@ -24,7 +24,7 @@ import { SessionHistoryScreen } from './SessionHistoryScreen';
 import { SkillsScreen } from './SkillsScreen';
 import { McpServersScreen } from './McpServersScreen';
 import type { SkillInfo } from '../hooks/useNavettedWS';
-import type { ApprovalPolicy, DeviceEntry, EventFrame, McpServerInfo, PastSessionInfo, PolicyAction, SavedPrompt, ScheduledSessionInfo, SecretEntry } from '../types';
+import type { ApprovalPolicy, DeviceEntry, EventFrame, McpServerInfo, PastSessionInfo, PolicyAction, SavedPrompt, ScheduledSessionInfo, SearchResult, SecretEntry } from '../types';
 
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
 
@@ -47,6 +47,8 @@ interface SettingsScreenProps {
   sessionHistory: Record<string, EventFrame[]>;
   onListPastSessions: () => void;
   onGetSessionHistory: (sessionId: string) => void;
+  searchResults: SearchResult[];
+  onSearchSessions: (query: string) => void;
   scheduledSessions: ScheduledSessionInfo[];
   onScheduleSession: (prompt: string, scheduledAt: number) => void;
   onCancelScheduledSession: (id: string) => void;
@@ -74,7 +76,7 @@ interface SettingsScreenProps {
   onListMcpServers: () => void;
 }
 
-export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, devices, onListDevices, onRevokeDevice, onRenameDevice, approvalPolicies, onGetApprovalPolicies, onSetApprovalPolicy, onDeleteApprovalPolicy, onBrowseFiles, mcpServers, onListMcpServers }: SettingsScreenProps) {
+export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, searchResults, onSearchSessions, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, devices, onListDevices, onRevokeDevice, onRenameDevice, approvalPolicies, onGetApprovalPolicies, onSetApprovalPolicy, onDeleteApprovalPolicy, onBrowseFiles, mcpServers, onListMcpServers }: SettingsScreenProps) {
   const [copied, setCopied] = useState(false);
   const [testFeedback, setTestFeedback] = useState<'idle' | 'sent' | 'failed'>('idle');
 
@@ -175,8 +177,10 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
         onClose={() => setHistoryVisible(false)}
         pastSessions={pastSessions}
         sessionHistory={sessionHistory}
+        searchResults={searchResults}
         onListPastSessions={onListPastSessions}
         onGetSessionHistory={onGetSessionHistory}
+        onSearchSessions={onSearchSessions}
       />
       <SkillsScreen
         visible={skillsVisible}

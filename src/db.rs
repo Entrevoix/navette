@@ -185,6 +185,45 @@ pub fn get_session_events(conn: &Connection, session_id: &str) -> Result<Vec<ser
         .collect())
 }
 
+/// Search past sessions by matching query against event JSON or session_id.
+pub fn search_sessions(conn: &Connection, query: &str) -> Result<Vec<serde_json::Value>> {
+    let escaped = query.replace('%', "\\%").replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
+    let mut stmt = conn
+        .prepare(
+            "SELECT session_id, COUNT(*) as event_count, MIN(ts) as started_at, MAX(ts) as last_event
+             FROM events
+             WHERE session_id != '' AND (json LIKE ?1 ESCAPE '\\' OR session_id LIKE ?1 ESCAPE '\\')
+             GROUP BY session_id
+             ORDER BY started_at DESC
+             LIMIT 50",
+        )
+        .context("prepare search_sessions")?;
+    let rows = stmt
+        .query_map(rusqlite::params![pattern], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        })
+        .context("query search_sessions")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect search_sessions")?;
+    Ok(rows
+        .into_iter()
+        .map(|(session_id, event_count, started_at, last_event)| {
+            serde_json::json!({
+                "session_id": session_id,
+                "event_count": event_count,
+                "started_at": started_at,
+                "last_event": last_event,
+            })
+        })
+        .collect())
+}
+
 /// Insert a scheduled session.
 pub fn insert_scheduled_session(
     conn: &Connection,

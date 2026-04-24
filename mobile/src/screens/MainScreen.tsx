@@ -22,8 +22,9 @@ import { VoiceButton } from '../components/VoiceButton';
 import { ContainerPickerScreen } from './ContainerPickerScreen';
 import { FileBrowserScreen } from './FileBrowserScreen';
 import { SettingsScreen } from './SettingsScreen';
-import { ApprovalPolicy, ConnectionStatus, ContainerInfo, DeviceEntry, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, McpServerInfo, PastSessionInfo, PendingApproval, PolicyAction, SavedPrompt, ScheduledSessionInfo, SecretEntry, SessionInfo, SessionStatus } from '../types';
+import { ApprovalPolicy, ConnectionStatus, ContainerInfo, DeviceEntry, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, McpServerInfo, PastSessionInfo, PendingApproval, PolicyAction, SavedPrompt, ScheduledSessionInfo, SearchResult, SecretEntry, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useNavettedWS';
+import { KanbanBoard } from '../components/KanbanBoard';
 
 interface MainScreenProps {
   status: ConnectionStatus;
@@ -82,6 +83,9 @@ interface MainScreenProps {
   onListMcpServers: () => void;
   containers: ContainerInfo[];
   onListContainers: () => void;
+  searchResults: SearchResult[];
+  onSearchSessions: (query: string) => void;
+  hasUnread: (sessionId: string) => boolean;
 }
 
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
@@ -156,6 +160,9 @@ export function MainScreen({
   onListMcpServers,
   containers,
   onListContainers,
+  searchResults,
+  onSearchSessions,
+  hasUnread,
 }: MainScreenProps) {
   const AGENTS = ['claude', 'codex', 'gemini'] as const;
   type AgentName = typeof AGENTS[number];
@@ -180,10 +187,17 @@ export function MainScreen({
   const [elapsed, setElapsed] = useState(0);
   const [logExpanded, setLogExpanded] = useState(false);
   const [reconnectedFlash, setReconnectedFlash] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevReconnectingRef = useRef(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('navette_view_mode').then((v: string | null) => {
+      if (v === 'board' || v === 'list') setViewMode(v);
+    });
+  }, []);
 
   useEffect(() => {
     const key = container ? `navette_workdir_${container}` : 'navette_workdir_host';
@@ -330,6 +344,8 @@ export function MainScreen({
         onBrowseFiles={() => { setSettingsVisible(false); setFilesVisible(true); }}
         mcpServers={mcpServers}
         onListMcpServers={onListMcpServers}
+        searchResults={searchResults}
+        onSearchSessions={onSearchSessions}
       />
 
       {/* Top bar */}
@@ -377,21 +393,45 @@ export function MainScreen({
       {/* Session dashboard (multiple sessions) or pill switcher (single session) */}
       {sessions.length > 1 && (
         <View style={styles.dashboardRow}>
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={sessions}
-            keyExtractor={s => s.session_id}
-            contentContainerStyle={styles.dashboardContent}
-            renderItem={({ item: s }) => (
-              <SessionCard
-                session={s}
-                isActive={s.session_id === activeSessionId}
-                onSelect={onSetActiveSessionId}
-                hasPendingApproval={s.session_id === activeSessionId && pendingApprovals.length > 0}
-              />
-            )}
-          />
+          <View style={styles.viewToggleRow}>
+            <Pressable
+              style={[styles.viewToggle, viewMode === 'list' && styles.viewToggleActive]}
+              onPress={() => { setViewMode('list'); AsyncStorage.setItem('navette_view_mode', 'list'); }}
+            >
+              <Text style={[styles.viewToggleText, viewMode === 'list' && styles.viewToggleTextActive]}>List</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.viewToggle, viewMode === 'board' && styles.viewToggleActive]}
+              onPress={() => { setViewMode('board'); AsyncStorage.setItem('navette_view_mode', 'board'); }}
+            >
+              <Text style={[styles.viewToggleText, viewMode === 'board' && styles.viewToggleTextActive]}>Board</Text>
+            </Pressable>
+          </View>
+          {viewMode === 'board' ? (
+            <KanbanBoard
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelect={onSetActiveSessionId}
+              hasUnread={hasUnread}
+            />
+          ) : (
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={sessions}
+              keyExtractor={s => s.session_id}
+              contentContainerStyle={styles.dashboardContent}
+              renderItem={({ item: s }) => (
+                <SessionCard
+                  session={s}
+                  isActive={s.session_id === activeSessionId}
+                  onSelect={onSetActiveSessionId}
+                  hasPendingApproval={s.session_id === activeSessionId && pendingApprovals.length > 0}
+                  hasUnread={hasUnread(s.session_id)}
+                />
+              )}
+            />
+          )}
         </View>
       )}
       {sessions.length === 1 && (
@@ -768,6 +808,32 @@ const styles = StyleSheet.create({
   },
   dashboardContent: {
     paddingHorizontal: 12,
+  },
+  viewToggleRow: {
+    flexDirection: 'row',
+    alignSelf: 'flex-end',
+    marginRight: 12,
+    marginBottom: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    overflow: 'hidden',
+  },
+  viewToggle: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: '#0d0d0d',
+  },
+  viewToggleActive: {
+    backgroundColor: '#1a1a2e',
+  },
+  viewToggleText: {
+    color: '#555',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  viewToggleTextActive: {
+    color: '#93c5fd',
   },
 
   pillsRow: {

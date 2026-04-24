@@ -6,7 +6,7 @@ import HmacSHA256 from 'crypto-js/hmac-sha256';
 import Hex from 'crypto-js/enc-hex';
 import * as Crypto from 'expo-crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, DeviceEntry, FileContentEvent, FileWriteResultEvent, ApprovalPolicy, PolicyAction, ContainerInfo, McpServerInfo } from '../types';
+import { EventFrame, PendingApproval, ConnectionStatus, ServerConfig, SessionStatus, SessionInfo, AssistantEvent, ToolUseBlock, DirListingEvent, PastSessionInfo, ScheduledSessionInfo, TestNotificationSentEvent, SavedPrompt, SecretEntry, DeviceEntry, FileContentEvent, FileWriteResultEvent, ApprovalPolicy, PolicyAction, ContainerInfo, McpServerInfo, SearchResult } from '../types';
 
 const LAST_SEQ_KEY = 'navette_last_seq';
 
@@ -80,6 +80,10 @@ interface UseNavettedWSResult {
   listContainers: () => void;
   mcpServers: McpServerInfo[];
   listMcpServers: () => void;
+  searchResults: SearchResult[];
+  searchSessions: (query: string) => void;
+  unreadSessions: Set<string>;
+  hasUnread: (sessionId: string) => boolean;
 }
 
 export function useNavettedWS(): UseNavettedWSResult {
@@ -102,6 +106,8 @@ export function useNavettedWS(): UseNavettedWSResult {
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionInfo[]>([]);
   const [containers, setContainers] = useState<ContainerInfo[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [unreadSessions, setUnreadSessions] = useState<Set<string>>(new Set());
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
 
@@ -124,6 +130,17 @@ export function useNavettedWS(): UseNavettedWSResult {
   useEffect(() => {
     sessionsLengthRef.current = sessions.length;
   }, [sessions.length]);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      setUnreadSessions(prev => {
+        if (!prev.has(activeSessionId)) return prev;
+        const next = new Set(prev);
+        next.delete(activeSessionId);
+        return next;
+      });
+    }
+  }, [activeSessionId]);
 
   useEffect(() => {
     AsyncStorage.getItem(LAST_SEQ_KEY).then((val: string | null) => {
@@ -353,6 +370,16 @@ export function useNavettedWS(): UseNavettedWSResult {
     }
   }, []);
 
+  const searchSessionsFn = useCallback((query: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'search_sessions', query }));
+    }
+  }, []);
+
+  const hasUnread = useCallback((sessionId: string) => {
+    return unreadSessions.has(sessionId);
+  }, [unreadSessions]);
+
   const disconnect = useCallback(() => {
     shouldReconnectRef.current = false;
     if (reconnectTimerRef.current !== null) {
@@ -442,12 +469,20 @@ export function useNavettedWS(): UseNavettedWSResult {
     }
 
     if (event.type === 'approval_pending') {
-      const { tool_use_id, expires_at } = event as { type: string; tool_use_id: string; expires_at: number };
+      const { tool_use_id, expires_at, session_id } = event as { type: string; tool_use_id: string; expires_at: number; session_id?: string };
       setPendingApprovals((prev: PendingApproval[]) =>
         prev.map((p: PendingApproval) =>
           p.tool_use_id === tool_use_id ? { ...p, expires_at } : p
         )
       );
+      if (session_id) {
+        setUnreadSessions(prev => {
+          if (prev.has(session_id)) return prev;
+          const next = new Set(prev);
+          next.add(session_id);
+          return next;
+        });
+      }
     }
 
     if (event.type === 'approval_expired') {
@@ -686,6 +721,11 @@ export function useNavettedWS(): UseNavettedWSResult {
         return;
       }
 
+      if (msgType === 'search_results') {
+        setSearchResults((msg['sessions'] as SearchResult[] | undefined) ?? []);
+        return;
+      }
+
       if (msgType === 'token_usage') {
         const sid = msg['session_id'] as string | undefined;
         if (sid) {
@@ -812,5 +852,9 @@ export function useNavettedWS(): UseNavettedWSResult {
     listContainers,
     mcpServers,
     listMcpServers,
+    searchResults,
+    searchSessions: searchSessionsFn,
+    unreadSessions,
+    hasUnread,
   };
 }

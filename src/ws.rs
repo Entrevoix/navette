@@ -540,6 +540,22 @@ where
                                 if sink.send(Message::Text(reply)).await.is_err() {
                                     break;
                                 }
+                            } else if msg_type == "search_sessions" {
+                                let query = v.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string();
+                                let db2 = db.clone();
+                                let results = tokio::task::spawn_blocking(move || {
+                                    let conn = db2.lock().unwrap();
+                                    db::search_sessions(&conn, &query)
+                                })
+                                .await
+                                .context("spawn_blocking panicked")?
+                                .unwrap_or_default();
+                                let reply = serde_json::to_string(
+                                    &serde_json::json!({"type": "search_results", "sessions": results})
+                                ).unwrap_or_default();
+                                if sink.send(Message::Text(reply)).await.is_err() {
+                                    break;
+                                }
                             } else if msg_type == "list_dir" {
                                 let raw_path = v.get("path").and_then(|p| p.as_str()).unwrap_or("~").to_string();
                                 let client_id2 = client_id.clone();

@@ -1,5 +1,23 @@
 # Review Log
 
+## Plan 6: session-ux-improvements
+
+**Status**: ALREADY IMPLEMENTED (no PR needed)
+**Date**: 2026-04-24
+
+All 9 tasks verified present in codebase:
+- Task 1: Deferred 5-min lock timer with lockTimerRef + LOCK_DELAY_MS in App.tsx
+- Task 2: DirEntry + DirListingEvent types in types/index.ts (lines 113-123)
+- Task 3: viewStartSeq state + listDir callback + dir_listing handler in useNavettedWS.ts
+- Task 4: ChatView accepts viewStartSeq prop, filters events, show/hide history toggle
+- Task 5: DirPicker.tsx modal component with breadcrumb nav, entry listing, error handling
+- Task 6: DirPicker wired into MainScreen with Browse button + workDir state
+- Task 7: App.tsx forwards viewStartSeq + listDir to MainScreen
+- Task 8: list_dir WS handler in ws.rs (line 543) with home-dir guard + dotfile filtering
+- Task 9: work_dir in RunRequest, extracted from WS run message, applied via cmd.cwd()
+
+---
+
 ## Plan 5: navette-ux-fixes
 
 **Branch**: `feat/navette-ux-fixes`
