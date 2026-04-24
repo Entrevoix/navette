@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -16,6 +17,7 @@ import {
 } from 'react-native';
 import { ApprovalCard } from './ApprovalCard';
 import { BatchApprovalBar } from './BatchApprovalBar';
+import { FileChip } from './FileChip';
 import { MessageBubble } from './MessageBubble';
 import { QuickResponseButtons } from './QuickResponseButtons';
 import { ToolCallRow } from './EventLog';
@@ -27,6 +29,8 @@ import {
   TextBlock,
   ToolUseBlock,
 } from '../types';
+
+type AttachedFile = { name: string; size: number; uri: string };
 
 interface ChatViewProps {
   events: EventFrame[];
@@ -79,6 +83,7 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
   const scrollRef = useRef<ScrollView>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [inputText, setInputText] = useState('');
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
 
   useEffect(() => { setShowHistory(false); }, [viewStartSeq]);
 
@@ -208,12 +213,24 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
     } catch { /* user cancelled share sheet */ }
   };
 
+  const handleAttach = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ multiple: true });
+      if (result.canceled || !result.assets) return;
+      const newFiles: AttachedFile[] = result.assets.map((a: DocumentPicker.DocumentPickerAsset) => ({ name: a.name, size: a.size ?? 0, uri: a.uri }));
+      setAttachedFiles((prev: AttachedFile[]) => [...prev, ...newFiles].slice(0, 5));
+    } catch { /* user cancelled picker */ }
+  };
+
   const handleSendInput = () => {
     const text = inputText.trim();
-    if (!text || !onSendInput) return;
+    if ((!text && attachedFiles.length === 0) || !onSendInput) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onSendInput(text);
+    const fileRefs = attachedFiles.map((f: AttachedFile) => `@${f.name}`).join(' ');
+    const fullText = fileRefs ? `${text} ${fileRefs}`.trim() : text;
+    onSendInput(fullText);
     setInputText('');
+    setAttachedFiles([]);
   };
 
   const handleCompact = () => {
@@ -223,25 +240,42 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
   };
 
   const inputBar = showInputBar ? (
-    <View style={styles.inputBar}>
-      <TextInput
-        style={[styles.inputField, hasPendingApprovals && styles.inputFieldDisabled]}
-        value={inputText}
-        onChangeText={setInputText}
-        placeholder="Type a message…"
-        placeholderTextColor="#52525b"
-        autoCorrect={false}
-        editable={!hasPendingApprovals}
-        multiline
-        blurOnSubmit={false}
-      />
-      <Pressable
-        style={[styles.sendBtn, (!inputText.trim() || hasPendingApprovals) && styles.sendBtnDisabled]}
-        onPress={handleSendInput}
-        disabled={!inputText.trim() || hasPendingApprovals}
-      >
-        <Text style={styles.sendBtnText}>Send</Text>
-      </Pressable>
+    <View>
+      {attachedFiles.length > 0 && (
+        <View style={styles.fileChipsRow}>
+          {attachedFiles.map((f: AttachedFile, i: number) => (
+            <FileChip
+              key={`${f.name}-${i}`}
+              name={f.name}
+              size={f.size}
+              onRemove={() => setAttachedFiles((prev: AttachedFile[]) => prev.filter((_: AttachedFile, idx: number) => idx !== i))}
+            />
+          ))}
+        </View>
+      )}
+      <View style={styles.inputBar}>
+        <Pressable style={styles.attachBtn} onPress={handleAttach} hitSlop={8}>
+          <Text style={styles.attachBtnText}>+</Text>
+        </Pressable>
+        <TextInput
+          style={[styles.inputField, hasPendingApprovals && styles.inputFieldDisabled]}
+          value={inputText}
+          onChangeText={setInputText}
+          placeholder="Type a message…"
+          placeholderTextColor="#52525b"
+          autoCorrect={false}
+          editable={!hasPendingApprovals}
+          multiline
+          blurOnSubmit={false}
+        />
+        <Pressable
+          style={[styles.sendBtn, (!inputText.trim() && attachedFiles.length === 0 || hasPendingApprovals) && styles.sendBtnDisabled]}
+          onPress={handleSendInput}
+          disabled={(!inputText.trim() && attachedFiles.length === 0) || hasPendingApprovals}
+        >
+          <Text style={styles.sendBtnText}>Send</Text>
+        </Pressable>
+      </View>
     </View>
   ) : null;
 
@@ -407,4 +441,25 @@ const styles = StyleSheet.create({
   compactBtnText: { color: '#93c5fd', fontSize: 12, fontWeight: '600' },
   historyToggle: { alignItems: 'center', paddingVertical: 6 },
   historyToggleText: { color: '#52525b', fontSize: 11 },
+  fileChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e1e',
+    backgroundColor: '#0a0a0a',
+  },
+  attachBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#0d0d0d',
+  },
+  attachBtnText: { color: '#9ca3af', fontSize: 20, fontWeight: '300' },
 });
