@@ -1,5 +1,43 @@
 # Review Log
 
+## Plan 4: android-aab-release-build
+
+**Branch**: `feat/android-aab-release-build`
+**Date**: 2026-04-23
+**Status**: PENDING PR
+
+### Devil's Advocate Review (4 rounds, consensus reached)
+
+| Topic | Rounds | Action Items |
+|---|---|---|
+| Correctness | 2 | 2 |
+| Error handling | 1 | 1 |
+| Performance | 0 | 0 |
+| Security | 0 | 0 |
+| Maintainability | 0 | 0 |
+| Testing gaps | 1 | 1 |
+| **Total** | **4** | **4** |
+
+### Action Items (4) — All Fixed
+
+1. **HIGH** — `configureReleaseBuildType` regex `/buildTypes\s*\{[^}]*release\s*\{([^}]*)}/s` fails when debug block precedes release block because `[^}]*` stops at debug's closing brace. Replaced regex with `findBlock()` using brace-matching (Correctness)
+2. **LOW** — `findMatchingBrace` call site used fragile offset `signingIdx + 'signingConfigs '.length`. Changed to `buildGradle.indexOf('{', signingIdx)` (Correctness)
+3. **MEDIUM** — `configureReleaseBuildType` silently returned unchanged on match failure. Added `console.warn` with descriptive message (Error handling)
+4. **MEDIUM** — No unit tests for string-manipulation functions. Added 18 tests in `plugins/__tests__/withReleaseSigning.test.js` (Testing gaps)
+
+### Deferred (not fixed)
+
+- `findMatchingBrace` doesn't handle braces inside comments/strings — accepted risk since Expo-generated signingConfigs blocks don't contain comments (LOW)
+- Whitespace inconsistency at injection point — cosmetic only, Groovy is whitespace-insensitive (LOW)
+
+### Validation
+
+- tsc --noEmit: PASS
+- jest: 120/120 PASS (18 new plugin tests)
+- Plugin tests verify: brace matching, block finding, signing injection, idempotency, debug-before-release scenario, end-to-end pipeline
+
+---
+
 ## Plan 3: expo-54-rn-upgrade
 
 **Branch**: `feat/expo-54-rn-upgrade`
