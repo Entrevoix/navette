@@ -7,9 +7,9 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result};
-use ring::hmac;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
+use ring::hmac;
 
 use rusqlite::Connection;
 use serde_json::Value;
@@ -1457,7 +1457,6 @@ pub(crate) fn parse_mcp_settings(content: &str) -> Vec<serde_json::Value> {
     servers
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1480,7 +1479,11 @@ mod tests {
     fn challenge_response_wrong_token_rejected() {
         let nonce = generate_challenge_nonce();
         let client_hmac = compute_hmac("correct-token-12345678901234", &nonce);
-        assert!(!verify_challenge_hmac("wrong-token-123456789012345678", &nonce, &client_hmac));
+        assert!(!verify_challenge_hmac(
+            "wrong-token-123456789012345678",
+            &nonce,
+            &client_hmac
+        ));
     }
 
     #[test]

@@ -273,7 +273,7 @@ async fn main() -> Result<()> {
                         inject_secrets: false,
                     };
                     tracing::info!(scheduled_id = %id, %session_id, "scheduler: firing session");
-                                    tokio::spawn(run_session(
+                    tokio::spawn(run_session(
                         session_id,
                         req,
                         scheduler_sessions.clone(),

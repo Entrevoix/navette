@@ -404,7 +404,11 @@ fn load_or_create_vault_key_at(path: &std::path::Path) -> Result<LessSafeKey> {
     let key_bytes = if path.exists() {
         let bytes = std::fs::read(path)
             .with_context(|| format!("failed to read vault key at {}", path.display()))?;
-        anyhow::ensure!(bytes.len() == VAULT_KEY_LEN, "vault.key has wrong length ({})", bytes.len());
+        anyhow::ensure!(
+            bytes.len() == VAULT_KEY_LEN,
+            "vault.key has wrong length ({})",
+            bytes.len()
+        );
         let mut arr = [0u8; VAULT_KEY_LEN];
         arr.copy_from_slice(&bytes);
         arr
@@ -454,9 +458,13 @@ fn migrate_vault_if_needed_at(
 
     let old_key = derive_secret_key(token)?;
 
-    tracing::info!(count = names.len(), "migrating secrets from token-derived key to vault key");
+    tracing::info!(
+        count = names.len(),
+        "migrating secrets from token-derived key to vault key"
+    );
 
-    let tx = conn.unchecked_transaction()
+    let tx = conn
+        .unchecked_transaction()
         .context("failed to begin migration transaction")?;
 
     for (name, _, _) in &names {
@@ -478,7 +486,8 @@ fn migrate_vault_if_needed_at(
         .with_context(|| format!("failed to re-encrypt secret '{name}'"))?;
     }
 
-    tx.commit().context("failed to commit migration transaction")?;
+    tx.commit()
+        .context("failed to commit migration transaction")?;
 
     tracing::info!(count = names.len(), "vault migration complete");
     Ok(())
@@ -731,7 +740,6 @@ fn data_dir() -> Result<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     fn in_memory_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
