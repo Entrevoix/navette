@@ -391,6 +391,100 @@ pub fn delete_prompt(conn: &Connection, id: &str) -> Result<()> {
 
 // ── Secrets vault (AES-256-GCM encrypted at rest) ────────────────────────────
 
+const VAULT_KEY_FILE: &str = "vault.key";
+const VAULT_KEY_LEN: usize = 32;
+
+/// Load the standalone vault key from disk, or generate one if it doesn't exist.
+/// The key file is stored at `~/.local/share/navetted/vault.key` with 0600 perms.
+pub fn load_or_create_vault_key() -> Result<LessSafeKey> {
+    load_or_create_vault_key_at(&data_dir()?.join(VAULT_KEY_FILE))
+}
+
+fn load_or_create_vault_key_at(path: &std::path::Path) -> Result<LessSafeKey> {
+    let key_bytes = if path.exists() {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("failed to read vault key at {}", path.display()))?;
+        anyhow::ensure!(bytes.len() == VAULT_KEY_LEN, "vault.key has wrong length ({})", bytes.len());
+        let mut arr = [0u8; VAULT_KEY_LEN];
+        arr.copy_from_slice(&bytes);
+        arr
+    } else {
+        let mut key = [0u8; VAULT_KEY_LEN];
+        rand::thread_rng().fill(&mut key[..]);
+        std::fs::create_dir_all(path.parent().unwrap())
+            .context("failed to create data dir for vault key")?;
+        std::fs::write(path, key)
+            .with_context(|| format!("failed to write vault key to {}", path.display()))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("failed to set permissions on {}", path.display()))?;
+        tracing::info!("generated new vault key at {}", path.display());
+        key
+    };
+    let unbound = UnboundKey::new(&AES_256_GCM, &key_bytes)
+        .map_err(|_| anyhow::anyhow!("AES key construction failed"))?;
+    Ok(LessSafeKey::new(unbound))
+}
+
+/// Migrate secrets from the old HKDF-from-token key to the standalone vault key.
+/// No-op if vault.key already existed before this call (migration already done)
+/// or if no secrets exist.
+pub fn migrate_vault_if_needed(conn: &Connection, token: &str) -> Result<()> {
+    migrate_vault_if_needed_at(conn, token, &data_dir()?.join(VAULT_KEY_FILE))
+}
+
+#[allow(deprecated)]
+fn migrate_vault_if_needed_at(
+    conn: &Connection,
+    token: &str,
+    vault_path: &std::path::Path,
+) -> Result<()> {
+    let vault_existed = vault_path.exists();
+
+    let new_key = load_or_create_vault_key_at(vault_path)?;
+
+    if vault_existed {
+        return Ok(());
+    }
+
+    let names = list_secrets(conn)?;
+    if names.is_empty() {
+        tracing::info!("no existing secrets to migrate");
+        return Ok(());
+    }
+
+    let old_key = derive_secret_key(token)?;
+
+    tracing::info!(count = names.len(), "migrating secrets from token-derived key to vault key");
+
+    let tx = conn.unchecked_transaction()
+        .context("failed to begin migration transaction")?;
+
+    for (name, _, _) in &names {
+        let (enc, non) = match get_secret_encrypted(&tx, name)? {
+            Some(pair) => pair,
+            None => continue,
+        };
+        let plaintext = decrypt_secret(&old_key, &enc, &non)
+            .with_context(|| format!("failed to decrypt secret '{name}' with old key"))?;
+        let (new_enc, new_nonce) = encrypt_secret(&new_key, &plaintext)?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+        tx.execute(
+            "UPDATE secrets SET encrypted = ?2, nonce = ?3, updated_at = ?4 WHERE name = ?1",
+            rusqlite::params![name, new_enc, new_nonce.as_slice(), now],
+        )
+        .with_context(|| format!("failed to re-encrypt secret '{name}'"))?;
+    }
+
+    tx.commit().context("failed to commit migration transaction")?;
+
+    tracing::info!(count = names.len(), "vault migration complete");
+    Ok(())
+}
+
+#[deprecated(note = "use load_or_create_vault_key instead")]
 pub fn derive_secret_key(token: &str) -> Result<LessSafeKey> {
     let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, HKDF_SALT);
     let prk = salt.extract(token.as_bytes());
@@ -638,6 +732,7 @@ fn data_dir() -> Result<std::path::PathBuf> {
 mod tests {
     use super::*;
 
+
     fn in_memory_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
@@ -871,6 +966,7 @@ mod tests {
         assert_eq!(after_delete[0]["id"], "p1");
     }
 
+    #[allow(deprecated)]
     #[test]
     fn secret_encrypt_decrypt_roundtrip() {
         let conn = in_memory_db();
@@ -895,6 +991,7 @@ mod tests {
         assert_eq!(list_secrets(&conn).unwrap().len(), 0);
     }
 
+    #[allow(deprecated)]
     #[test]
     fn secret_upsert_updates_value() {
         let conn = in_memory_db();
@@ -915,6 +1012,65 @@ mod tests {
     }
 
     #[test]
+    fn vault_key_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault_path = tmp.path().join("vault.key");
+
+        let key1 = load_or_create_vault_key_at(&vault_path).unwrap();
+        let plaintext = b"vault-key-test-secret";
+        let (enc, nonce) = encrypt_secret(&key1, plaintext).unwrap();
+
+        let key2 = load_or_create_vault_key_at(&vault_path).unwrap();
+        let decrypted = decrypt_secret(&key2, &enc, &nonce).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[allow(deprecated)]
+    #[test]
+    fn vault_migration_re_encrypts_secrets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault_path = tmp.path().join("vault.key");
+
+        let conn = in_memory_db();
+        let token = "migration-test-token-1234567890ab";
+        let old_key = derive_secret_key(token).unwrap();
+
+        let (enc, nonce) = encrypt_secret(&old_key, b"my-secret").unwrap();
+        set_secret(&conn, "API_KEY", &enc, &nonce, 1000.0).unwrap();
+
+        migrate_vault_if_needed_at(&conn, token, &vault_path).unwrap();
+
+        let new_key = load_or_create_vault_key_at(&vault_path).unwrap();
+        let (enc2, non2) = get_secret_encrypted(&conn, "API_KEY").unwrap().unwrap();
+        let decrypted = decrypt_secret(&new_key, &enc2, &non2).unwrap();
+        assert_eq!(decrypted, b"my-secret");
+
+        assert!(decrypt_secret(&old_key, &enc2, &non2).is_err());
+    }
+
+    #[allow(deprecated)]
+    #[test]
+    fn vault_migration_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault_path = tmp.path().join("vault.key");
+
+        let conn = in_memory_db();
+        let token = "idempotent-test-token-1234567890";
+        let old_key = derive_secret_key(token).unwrap();
+
+        let (enc, nonce) = encrypt_secret(&old_key, b"secret-val").unwrap();
+        set_secret(&conn, "KEY1", &enc, &nonce, 1000.0).unwrap();
+
+        migrate_vault_if_needed_at(&conn, token, &vault_path).unwrap();
+        migrate_vault_if_needed_at(&conn, token, &vault_path).unwrap();
+
+        let new_key = load_or_create_vault_key_at(&vault_path).unwrap();
+        let (enc2, non2) = get_secret_encrypted(&conn, "KEY1").unwrap().unwrap();
+        let decrypted = decrypt_secret(&new_key, &enc2, &non2).unwrap();
+        assert_eq!(decrypted, b"secret-val");
+    }
+
+    #[test]
     fn secret_not_found_returns_none() {
         let conn = in_memory_db();
         assert!(get_secret_encrypted(&conn, "NONEXISTENT")
@@ -922,6 +1078,7 @@ mod tests {
             .is_none());
     }
 
+    #[allow(deprecated)]
     #[test]
     fn secret_wrong_key_fails_decrypt() {
         let key1 = derive_secret_key("token-one-1234567890123456789012").unwrap();

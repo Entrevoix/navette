@@ -7,9 +7,10 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result};
+use ring::hmac;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
-use ring::rand::SecureRandom;
+
 use rusqlite::Connection;
 use serde_json::Value;
 use subtle::ConstantTimeEq;
@@ -172,13 +173,12 @@ where
 
             if version >= 2 {
                 // Challenge-response: token never crosses the wire.
-                let nonce = generate_nonce()?;
-                let challenge = serde_json::to_string(&serde_json::json!({
+                let nonce = generate_challenge_nonce();
+                let challenge_msg = serde_json::to_string(&serde_json::json!({
                     "type": "challenge",
                     "nonce": nonce,
-                }))
-                .unwrap();
-                sink.send(Message::Text(challenge))
+                }))?;
+                sink.send(Message::Text(challenge_msg))
                     .await
                     .context("failed to send challenge")?;
 
@@ -190,8 +190,8 @@ where
                             let _ = sink.send(rejected("expected challenge_response")).await;
                             return Ok(());
                         }
-                        let provided_hmac = resp.get("hmac").and_then(|v| v.as_str()).unwrap_or("");
-                        if !verify_hmac(&token, &nonce, provided_hmac) {
+                        let client_hmac = resp.get("hmac").and_then(|v| v.as_str()).unwrap_or("");
+                        if !verify_challenge_hmac(&token, &nonce, client_hmac) {
                             let _ = sink.send(rejected("bad hmac")).await;
                             return Ok(());
                         }
@@ -386,7 +386,6 @@ where
                                         command,
                                         inject_secrets,
                                     };
-                                    let run_token = token.clone();
                                     tokio::spawn(crate::run_session(
                                         session_id.clone(),
                                         req,
@@ -395,7 +394,6 @@ where
                                         pending.clone(),
                                         events_tx.clone(),
                                         kill_rx,
-                                        run_token,
                                         pty_input_rx,
                                     ));
                                     tracing::info!(%client_id, %session_id, "spawned session");
@@ -905,11 +903,10 @@ where
                                 }
                             } else if msg_type == "list_secrets" {
                                 let db2 = db.clone();
-                                let list_token = token.clone();
                                 let secrets_list = tokio::task::spawn_blocking(move || {
                                     let conn = db2.lock().unwrap();
                                     let names = db::list_secrets(&conn)?;
-                                    let key = db::derive_secret_key(&list_token)?;
+                                    let key = db::load_or_create_vault_key()?;
                                     let mut out = Vec::new();
                                     for (name, created_at, updated_at) in &names {
                                         let masked = match db::get_secret_encrypted(&conn, name)? {
@@ -967,12 +964,11 @@ where
                                         break;
                                     }
                                 } else {
-                                    let set_token = token.clone();
                                     let set_value = value.to_string();
                                     let set_name = name.clone();
                                     let db2 = db.clone();
                                     let save_result = tokio::task::spawn_blocking(move || {
-                                        let key = db::derive_secret_key(&set_token)?;
+                                        let key = db::load_or_create_vault_key()?;
                                         let (encrypted, nonce) = db::encrypt_secret(&key, set_value.as_bytes())?;
                                         let conn = db2.lock().unwrap();
                                         db::set_secret(&conn, &set_name, &encrypted, &nonce, unix_ts())
@@ -1381,6 +1377,20 @@ fn new_session_id() -> String {
         .collect()
 }
 
+fn generate_challenge_nonce() -> String {
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill(&mut bytes[..]);
+    hex::encode(bytes)
+}
+
+fn verify_challenge_hmac(token: &str, nonce: &str, client_hex: &str) -> bool {
+    let Ok(client_bytes) = hex::decode(client_hex) else {
+        return false;
+    };
+    let key = hmac::Key::new(hmac::HMAC_SHA256, token.as_bytes());
+    hmac::verify(&key, nonce.as_bytes(), &client_bytes).is_ok()
+}
+
 fn unix_ts() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1388,27 +1398,6 @@ fn unix_ts() -> f64 {
         .as_secs_f64()
 }
 
-fn generate_nonce() -> Result<String> {
-    let mut buf = [0u8; 32];
-    ring::rand::SystemRandom::new()
-        .fill(&mut buf)
-        .map_err(|_| anyhow::anyhow!("system RNG failed"))?;
-    Ok(hex::encode(buf))
-}
-
-fn verify_hmac(token: &str, nonce: &str, provided_hex: &str) -> bool {
-    let Ok(provided_bytes) = hex::decode(provided_hex) else {
-        return false;
-    };
-    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, token.as_bytes());
-    ring::hmac::verify(&key, nonce.as_bytes(), &provided_bytes).is_ok()
-}
-
-/// Parse the stdout of `distrobox list --no-color` into a vec of JSON objects.
-///
-/// Each object has `name`, `status`, and `image` fields.  The header line is
-/// skipped and lines with fewer than 3 pipe-delimited columns are ignored.
-/// The caller is responsible for prepending the "host (no container)" entry.
 pub(crate) fn parse_distrobox_output(stdout: &str) -> Vec<serde_json::Value> {
     stdout
         .lines()
@@ -1428,10 +1417,6 @@ pub(crate) fn parse_distrobox_output(stdout: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Parse a Claude `settings.json` string and return a sorted vec of MCP server
-/// descriptors.  Each entry has `name`, `command`, `args_count`, `env_count`,
-/// and `status` fields.  Returns an empty vec for invalid JSON or missing
-/// `mcpServers` key.
 pub(crate) fn parse_mcp_settings(content: &str) -> Vec<serde_json::Value> {
     let parsed: serde_json::Value = match serde_json::from_str(content) {
         Ok(v) => v,
@@ -1472,45 +1457,58 @@ pub(crate) fn parse_mcp_settings(content: &str) -> Vec<serde_json::Value> {
     servers
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn compute_hmac(token: &str, nonce: &str) -> String {
+        let key = hmac::Key::new(hmac::HMAC_SHA256, token.as_bytes());
+        let tag = hmac::sign(&key, nonce.as_bytes());
+        hex::encode(tag.as_ref())
+    }
+
     #[test]
-    fn challenge_response_success() {
-        let token = "test-secret-token-abc123";
-        let nonce = generate_nonce().unwrap();
+    fn challenge_response_valid_hmac() {
+        let token = "test-token-abcdef1234567890";
+        let nonce = generate_challenge_nonce();
+        let client_hmac = compute_hmac(token, &nonce);
+        assert!(verify_challenge_hmac(token, &nonce, &client_hmac));
+    }
+
+    #[test]
+    fn challenge_response_wrong_token_rejected() {
+        let nonce = generate_challenge_nonce();
+        let client_hmac = compute_hmac("correct-token-12345678901234", &nonce);
+        assert!(!verify_challenge_hmac("wrong-token-123456789012345678", &nonce, &client_hmac));
+    }
+
+    #[test]
+    fn challenge_response_wrong_nonce_rejected() {
+        let token = "test-token-abcdef1234567890";
+        let client_hmac = compute_hmac(token, "nonce-aaa");
+        assert!(!verify_challenge_hmac(token, "nonce-bbb", &client_hmac));
+    }
+
+    #[test]
+    fn challenge_response_invalid_hex_rejected() {
+        let token = "test-token-abcdef1234567890";
+        let nonce = generate_challenge_nonce();
+        assert!(!verify_challenge_hmac(token, &nonce, "not-valid-hex-zzz"));
+    }
+
+    #[test]
+    fn challenge_nonce_is_64_hex_chars() {
+        let nonce = generate_challenge_nonce();
         assert_eq!(nonce.len(), 64);
-
-        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, token.as_bytes());
-        let tag = ring::hmac::sign(&key, nonce.as_bytes());
-        let hmac_hex = hex::encode(tag.as_ref());
-
-        assert!(verify_hmac(token, &nonce, &hmac_hex));
+        assert!(nonce.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
-    fn challenge_response_wrong_hmac() {
-        let token = "correct-token";
-        let nonce = generate_nonce().unwrap();
-
-        let wrong_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, b"wrong-token");
-        let wrong_tag = ring::hmac::sign(&wrong_key, nonce.as_bytes());
-        let wrong_hex = hex::encode(wrong_tag.as_ref());
-
-        assert!(!verify_hmac(token, &nonce, &wrong_hex));
-    }
-
-    #[test]
-    fn challenge_response_invalid_hex() {
-        assert!(!verify_hmac("token", "nonce", "not-valid-hex!!!"));
-    }
-
-    #[test]
-    fn legacy_token_auth() {
-        assert!(constant_time_token_eq("my-secret", "my-secret"));
-        assert!(!constant_time_token_eq("my-secret", "wrong"));
-        assert!(!constant_time_token_eq("short", "longer-token"));
+    fn constant_time_eq_matches() {
+        assert!(constant_time_token_eq("abc123", "abc123"));
+        assert!(!constant_time_token_eq("abc123", "abc124"));
+        assert!(!constant_time_token_eq("short", "longer-string"));
     }
 
     #[test]
@@ -1567,8 +1565,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    // --- parse_distrobox_output tests ---
-
     #[test]
     fn parse_distrobox_output_typical() {
         let stdout = "\
@@ -1612,8 +1608,6 @@ abc | valid-name | running | some-image
         assert_eq!(result[0]["name"], "valid-name");
     }
 
-    // --- parse_mcp_settings tests ---
-
     #[test]
     fn parse_mcp_settings_valid() {
         let content = r#"{
@@ -1631,7 +1625,6 @@ abc | valid-name | running | some-image
         }"#;
         let result = parse_mcp_settings(content);
         assert_eq!(result.len(), 2);
-        // sorted by name
         assert_eq!(result[0]["name"], "server-a");
         assert_eq!(result[0]["command"], "uvx");
         assert_eq!(result[0]["args_count"], 1);

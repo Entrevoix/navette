@@ -71,6 +71,7 @@ See `.claude/PRPs/plans/device-management-biometric.plan.md` for the full implem
 
 ---
 
+
 ## Acceptance Criteria
 - [ ] `navetted --pair` shows QR with connection info
 - [ ] Challenge-response auth works for new clients

@@ -111,6 +111,13 @@ async fn main() -> Result<()> {
     );
 
     let db = Arc::new(std::sync::Mutex::new(db::open()?));
+
+    // Migrate secrets from token-derived key to standalone vault key (one-time, idempotent).
+    {
+        let conn = db.lock().unwrap();
+        db::migrate_vault_if_needed(&conn, &cfg.token)?;
+    }
+
     let pending: PendingApprovals = Arc::new(Mutex::new(HashMap::new()));
     let buffered: BufferedDecisions = Arc::new(Mutex::new(HashMap::new()));
     let sessions: Sessions = Arc::new(Mutex::new(HashMap::new()));
@@ -266,8 +273,7 @@ async fn main() -> Result<()> {
                         inject_secrets: false,
                     };
                     tracing::info!(scheduled_id = %id, %session_id, "scheduler: firing session");
-                    let sched_token = scheduler_cfg.token.clone();
-                    tokio::spawn(run_session(
+                                    tokio::spawn(run_session(
                         session_id,
                         req,
                         scheduler_sessions.clone(),
@@ -275,7 +281,6 @@ async fn main() -> Result<()> {
                         scheduler_pending.clone(),
                         scheduler_events_tx.clone(),
                         kill_rx,
-                        sched_token,
                         pty_input_rx,
                     ));
                 }
@@ -317,7 +322,6 @@ pub async fn run_session(
     pending: PendingApprovals,
     events_tx: ws::EventTx,
     kill_rx: oneshot::Receiver<()>,
-    token: String,
     pty_input_rx: tokio::sync::mpsc::Receiver<String>,
 ) {
     let ts = unix_ts();
@@ -354,7 +358,7 @@ pub async fn run_session(
     };
 
     let secrets: HashMap<String, String> = if req.inject_secrets {
-        match db::derive_secret_key(&token) {
+        match db::load_or_create_vault_key() {
             Ok(key) => {
                 let conn = db.lock().unwrap();
                 let names = db::list_secrets(&conn).unwrap_or_default();
