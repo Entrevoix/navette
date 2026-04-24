@@ -3,6 +3,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as SecureStore from 'expo-secure-store';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -32,6 +33,11 @@ interface SavedConfig extends ServerConfig {
 const CONFIGS_KEY = 'navette_saved_configs';
 const LEGACY_KEY = 'navette_config';
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
+const TOKEN_KEY_PREFIX = 'navette_token_';
+
+function tokenKey(id: string): string {
+  return `${TOKEN_KEY_PREFIX}${id}`;
+}
 
 interface TsPeer { name: string; ip: string; }
 
@@ -70,8 +76,24 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
           const parsed = JSON.parse(raw);
           if (!Array.isArray(parsed) || parsed.length === 0 || !parsed[0]?.host) throw new Error('invalid shape');
           const configs = parsed as SavedConfig[];
-          setSavedConfigs(configs);
-          if (configs.length > 0) fillForm(configs[0], true);
+
+          const hydrated = await Promise.all(configs.map(async (cfg) => {
+            const stored = await SecureStore.getItemAsync(tokenKey(cfg.id));
+            if (stored) return { ...cfg, token: stored };
+            if (cfg.token) {
+              await SecureStore.setItemAsync(tokenKey(cfg.id), cfg.token);
+            }
+            return cfg;
+          }));
+
+          const needsStrip = hydrated.some((_cfg, i) => !!configs[i].token);
+          if (needsStrip) {
+            const stripped = hydrated.map(c => ({ ...c, token: '' }));
+            await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify(stripped));
+          }
+
+          setSavedConfigs(hydrated);
+          if (hydrated.length > 0) fillForm(hydrated[0], true);
           return;
         }
         // Migrate legacy single config
@@ -80,14 +102,20 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
           const parsed = JSON.parse(legacy);
           if (!parsed || typeof parsed.host !== 'string') throw new Error('invalid shape');
           const cfg = parsed as ServerConfig;
-          const migrated: SavedConfig = { ...cfg, id: genId(), name: cfg.host };
-          const list = [migrated];
-          await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify(list));
-          setSavedConfigs(list);
+          const id = genId();
+          const migrated: SavedConfig = { ...cfg, id, name: cfg.host };
+          if (cfg.token) {
+            await SecureStore.setItemAsync(tokenKey(id), cfg.token);
+          }
+          const stripped: SavedConfig = { ...migrated, token: '' };
+          await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify([stripped]));
+          setSavedConfigs([migrated]);
           fillForm(migrated, true);
         }
-      } catch {
-        // Corrupt stored config — start fresh
+      } catch (e: unknown) {
+        if (__DEV__ && e instanceof Error) {
+          console.warn('Config load failed:', e.message);
+        }
       }
     })();
   }, []);
@@ -109,7 +137,9 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
   const handleDelete = async (id: string) => {
     const updated = savedConfigs.filter(c => c.id !== id);
     setSavedConfigs(updated);
-    await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify(updated));
+    const stripped = updated.map(c => ({ ...c, token: '' }));
+    await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify(stripped));
+    await SecureStore.deleteItemAsync(tokenKey(id));
     if (selectedId === id) {
       setSelectedId(null);
       if (updated.length > 0) fillForm(updated[0], true);
@@ -130,6 +160,12 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
       tls,
     };
 
+    if (cfg.token) {
+      await SecureStore.setItemAsync(tokenKey(cfg.id), cfg.token);
+    } else {
+      await SecureStore.deleteItemAsync(tokenKey(cfg.id));
+    }
+
     const existing = savedConfigs.findIndex(c => c.id === cfg.id);
     const updated = existing >= 0
       ? savedConfigs.map(c => c.id === cfg.id ? cfg : c)
@@ -138,7 +174,8 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
     setSavedConfigs(updated);
     setSelectedId(cfg.id);
     setName(cfg.name);
-    await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify(updated));
+    const stripped = updated.map(c => ({ ...c, token: '' }));
+    await AsyncStorage.setItem(CONFIGS_KEY, JSON.stringify(stripped));
   };
 
   const openTailscale = async () => {
