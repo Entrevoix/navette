@@ -1,8 +1,8 @@
 // Copyright (C) 2025 Entrevoix, Inc.
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SessionInfo } from '../types';
 
 export interface SessionCardProps {
@@ -10,6 +10,8 @@ export interface SessionCardProps {
   isActive: boolean;
   onSelect: (id: string) => void;
   hasPendingApproval?: boolean;
+  hasUnread?: boolean;
+  unreadCount?: number;
 }
 
 const AGENT_LABELS: Record<string, string> = {
@@ -45,10 +47,11 @@ function statusDotColor(hasPendingApproval: boolean, isActive: boolean): string 
   return '#6b7280';                          // gray — idle/done
 }
 
-export function SessionCard({ session, isActive, onSelect, hasPendingApproval = false }: SessionCardProps) {
+export function SessionCard({ session, isActive, onSelect, hasPendingApproval = false, hasUnread = false, unreadCount = 0 }: SessionCardProps) {
   const [elapsed, setElapsed] = useState(() =>
     Math.floor((Date.now() - session.started_at * 1000) / 1000)
   );
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -57,11 +60,26 @@ export function SessionCard({ session, isActive, onSelect, hasPendingApproval = 
     return () => clearInterval(id);
   }, [session.started_at]);
 
+  useEffect(() => {
+    if (hasUnread && !isActive) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 0.4, duration: 800, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+    pulseAnim.setValue(1);
+  }, [hasUnread, isActive, pulseAnim]);
+
   const agentLabel = detectAgent(session);
   const promptPreview = session.prompt.length > 60
     ? session.prompt.slice(0, 60) + '…'
     : session.prompt;
   const dotColor = statusDotColor(hasPendingApproval, isActive);
+  const showBadge = hasUnread && !isActive;
 
   const inputTok = session.input_tokens ?? 0;
   const outputTok = session.output_tokens ?? 0;
@@ -72,6 +90,11 @@ export function SessionCard({ session, isActive, onSelect, hasPendingApproval = 
       style={[styles.card, isActive && styles.cardActive]}
       onPress={() => onSelect(session.session_id)}
     >
+      {showBadge && (
+        <Animated.View style={[styles.badge, { opacity: pulseAnim }]}>
+          <Text style={styles.badgeText}>{unreadCount > 1 ? String(unreadCount) : ''}</Text>
+        </Animated.View>
+      )}
       <View style={styles.header}>
         <Text style={styles.agentLabel}>{agentLabel}</Text>
         <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
@@ -159,5 +182,23 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: 'Menlo',
     marginTop: 4,
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#ef4444',
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
   },
 });

@@ -1,7 +1,7 @@
 // Copyright (C) 2025 Entrevoix, Inc.
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -9,18 +9,21 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { EventLog } from '../components/EventLog';
-import { EventFrame, PastSessionInfo } from '../types';
+import { EventFrame, PastSessionInfo, SearchResult } from '../types';
 
 interface SessionHistoryScreenProps {
   visible: boolean;
   onClose: () => void;
   pastSessions: PastSessionInfo[];
   sessionHistory: Record<string, EventFrame[]>;
+  searchResults: SearchResult[];
   onListPastSessions: () => void;
   onGetSessionHistory: (sessionId: string) => void;
+  onSearchSessions: (query: string) => void;
 }
 
 function formatDate(ts: number): string {
@@ -34,14 +37,36 @@ export function SessionHistoryScreen({
   onClose,
   pastSessions,
   sessionHistory,
+  searchResults,
   onListPastSessions,
   onGetSessionHistory,
+  onSearchSessions,
 }: SessionHistoryScreenProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isSearching = searchQuery.trim().length > 0;
+  const displaySessions: PastSessionInfo[] = isSearching
+    ? searchResults.map(r => ({ session_id: r.session_id, event_count: r.event_count, started_at: r.started_at, last_event: r.last_event }))
+    : pastSessions;
+
+  const handleSearchChange = useCallback((text: string) => {
+    setSearchQuery(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (text.trim()) {
+      debounceRef.current = setTimeout(() => onSearchSessions(text.trim()), 300);
+    }
+  }, [onSearchSessions]);
+
+  useEffect(() => {
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, []);
 
   const handleOpen = () => {
     onListPastSessions();
     setSelectedId(null);
+    setSearchQuery('');
   };
 
   const handleSelectSession = (id: string) => {
@@ -72,14 +97,30 @@ export function SessionHistoryScreen({
         <View style={styles.body}>
           {/* Session list panel */}
           <View style={styles.listPanel}>
-            <Text style={styles.panelLabel}>Past Sessions ({pastSessions.length})</Text>
-            {pastSessions.length === 0 ? (
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={handleSearchChange}
+              placeholder="Search sessions..."
+              placeholderTextColor="#555"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            <Text style={styles.panelLabel}>
+              {isSearching
+                ? `Results (${displaySessions.length})`
+                : `Past Sessions (${pastSessions.length})`}
+            </Text>
+            {displaySessions.length === 0 ? (
               <View style={styles.emptyPanel}>
-                <Text style={styles.emptyPanelText}>No past sessions found</Text>
+                <Text style={styles.emptyPanelText}>
+                  {isSearching ? 'No matching sessions' : 'No past sessions found'}
+                </Text>
               </View>
             ) : (
               <FlatList
-                data={pastSessions}
+                data={displaySessions}
                 keyExtractor={item => item.session_id}
                 renderItem={({ item }) => {
                   const isSelected = item.session_id === selectedId;
@@ -155,6 +196,17 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     flexDirection: 'column',
+  },
+  searchInput: {
+    backgroundColor: '#0d0d0d',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    padding: 10,
+    marginHorizontal: 16,
+    marginTop: 10,
+    color: '#f0f0f0',
+    fontSize: 13,
   },
   listPanel: {
     borderBottomWidth: 1,

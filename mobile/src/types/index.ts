@@ -206,3 +206,12 @@ export interface McpServerInfo {
   args_count: number;
   env_count: number;
 }
+
+export type SessionPhase = 'running' | 'waiting' | 'complete' | 'failed';
+
+export interface SearchResult {
+  session_id: string;
+  event_count: number;
+  started_at: number;
+  last_event: number;
+}
