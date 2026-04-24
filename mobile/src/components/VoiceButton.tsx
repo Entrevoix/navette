@@ -856,21 +856,10 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     showErrRef.current('Switched to Whisper. Add API key in Settings.', 3000);
   };
 
-  // ── Permission helper ───────────────────────────────────────────────────
-  // Android 16 (Sept 2025 security patch) regression: any *request* permissions
-  // call hangs forever when permission is already granted, because
-  // ReactActivityDelegate.onRequestPermissionsResult only fires on RESUMED and
-  // the system fast-paths the result before the activity transitions. Read-only
-  // checks still work, so check first and only prompt if actually needed.
-  // See: github.com/facebook/react-native/pull/53898 (fixed in RN 0.81.5+)
-  //      github.com/jamsch/expo-speech-recognition/issues/117
   const requestRecordAudio = useCallback(async (): Promise<boolean> => {
     try {
-      const current = await ExpoSpeechRecognitionModule.getPermissionsAsync();
-      if (current.granted) return true;
-      if (!current.canAskAgain) return false;
-      const next = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      return next.granted;
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      return result.granted;
     } catch {
       return false;
     }

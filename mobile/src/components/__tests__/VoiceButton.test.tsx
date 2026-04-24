@@ -184,7 +184,6 @@ describe('VoiceButton — on-device tap-to-toggle (default)', () => {
   });
 
   it('shows error when mic permission denied', async () => {
-    mockGetPermissionsAsync.mockResolvedValueOnce({ granted: false, canAskAgain: true });
     mockRequestPermissionsAsync.mockResolvedValueOnce({ granted: false });
     const { getByText } = renderButton();
     await pressIn(getByText('⏺'));

@@ -1,0 +1,91 @@
+# Review Log
+
+## Plan 3: expo-54-rn-upgrade
+
+**Branch**: `feat/expo-54-rn-upgrade`
+**Date**: 2026-04-23
+**Status**: PENDING PR
+
+### Devil's Advocate Review (5 rounds, early consensus at 4)
+
+| Topic | Rounds | Action Items |
+|---|---|---|
+| Correctness | 2 | 1 |
+| Error handling | 0 | 0 |
+| Performance | 0 | 0 |
+| Security | 0 | 0 |
+| Maintainability | 1 | 0 |
+| Testing gaps | 1 | 1 |
+| **Total** | **4** | **2** |
+
+### Action Items (2) — All Fixed
+
+1. Pin `react-test-renderer` with `~19.1.0` tilde range instead of exact `19.1.0` (Correctness)
+2. Remove dead `mockGetPermissionsAsync` setup in permission-denied test (Testing gaps)
+
+### Key Decisions
+
+- Jest 30.x→29.x downgrade: jest-expo 54 bundles `@jest/*@^29.2.1` internally, incompatible with Jest 30
+- `react-native-worklets` added: new peer dep of reanimated v4.x
+- `expo-speech-recognition` stays at `^3.1.2`: third-party package, not Expo SDK versioned
+- Android 16 permission workaround removed: fixed in RN 0.81.5+
+
+### Validation
+
+- tsc --noEmit: PASS
+- jest: 102/102 PASS
+- npm install: PASS (--legacy-peer-deps)
+
+---
+
+## Plan 2: websocket-tls
+
+**Status**: ALREADY IMPLEMENTED (no PR needed)
+**Date**: 2026-04-23
+
+All 6 tasks verified present in codebase:
+- Task 1: TLS deps in Cargo.toml (tokio-rustls, rustls-pemfile, rcgen)
+- Task 2: Config fields + tls_enabled() + generate_self_signed_cert() in config.rs
+- Task 3: load_tls_acceptor() + generic stream in ws.rs
+- Task 4: TLS acceptor wired in main.rs, QR payload includes tls flag
+- Task 5: Mobile wss:// in useNavettedWS.ts:488, tls field in ServerConfig
+- Task 6: Tests: tls_disabled_when_no_paths, tls_disabled_when_files_missing, tls_enabled_when_files_exist, generate_cert_creates_valid_pem_files
+
+---
+
+## Plan 1: auth-pairing-phase4
+
+**Branch**: `feat/auth-pairing-phase4`
+**PR**: #19
+**Date**: 2026-04-23
+**Status**: MERGED
+
+### Devil's Advocate Review (5 rounds)
+
+| Topic | Rounds | Action Items |
+|---|---|---|
+| Correctness | 2 | 2 |
+| Error handling | 1 | 1 |
+| Performance | 0 | 0 |
+| Security | 0 | 0 |
+| Maintainability | 0 | 0 |
+| Testing gaps | 1 | 0 |
+| **Total** | **4** | **3** |
+
+### Action Items (3) — All Fixed
+
+1. Fix `needsStrip` to use `!!configs[i].token` instead of `!== ''` (Correctness)
+2. Add `else` branch in `handleSave` to delete token from SecureStore when empty (Correctness)
+3. Add `__DEV__` warning in catch block for config load failures (Error handling)
+
+### Deferred
+
+- Tailscale API key still in plain AsyncStorage (LOW, out of scope)
+- No unit tests for SecureStore migration logic (extracting testable module is scope creep)
+
+### Validation
+
+- cargo build: PASS
+- cargo test: 63/63 PASS
+- tsc --noEmit: PASS
+- jest: 102/102 PASS
