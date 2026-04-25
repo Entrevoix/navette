@@ -23,6 +23,7 @@ interface FileBrowserScreenProps {
   listDir: (path: string, cb: (ev: DirListingEvent) => void) => void;
   readFile: (path: string, cb: (ev: FileContentEvent) => void) => void;
   writeFile: (path: string, content: string, cb: (ev: FileWriteResultEvent) => void) => void;
+  onSetWorkDir?: (path: string) => void;
   initialPath?: string;
 }
 
@@ -34,6 +35,7 @@ export function FileBrowserScreen({
   listDir,
   readFile,
   writeFile,
+  onSetWorkDir,
   initialPath = '~',
 }: FileBrowserScreenProps) {
   const theme = useTheme();
@@ -165,6 +167,14 @@ export function FileBrowserScreen({
 
             <View style={[styles.footer, { borderTopColor: theme.colors.outlineVariant }]}>
               <Text style={[styles.footerPath, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>{currentPath}</Text>
+              {onSetWorkDir && (
+                <Pressable
+                  onPress={() => { onSetWorkDir(currentPath); onClose(); }}
+                  style={[styles.setWorkDirBtn, { backgroundColor: theme.colors.primaryContainer }]}
+                >
+                  <Text style={[styles.setWorkDirText, { color: theme.colors.primary }]}>Use as Working Directory</Text>
+                </Pressable>
+              )}
             </View>
           </>
         )}
@@ -240,6 +250,8 @@ const styles = StyleSheet.create({
   },
   entryIcon: { fontSize: 16, marginRight: 12 },
   entryName: { fontSize: 14, flex: 1 },
-  footer: { padding: 12, borderTopWidth: 1 },
+  footer: { padding: 12, borderTopWidth: 1, gap: 8 },
   footerPath: { fontSize: 11, fontFamily: 'Menlo' },
+  setWorkDirBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center' as const },
+  setWorkDirText: { fontSize: 13, fontWeight: '600' as const },
 });

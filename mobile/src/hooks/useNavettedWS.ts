@@ -42,7 +42,9 @@ interface UseNavettedWSResult {
   scheduledSessions: ScheduledSessionInfo[];
   reconnecting: boolean;
   reconnectCount: number;
+  connectionLost: boolean;
   connect: (config: ServerConfig) => void;
+  retry: () => void;
   disconnect: () => void;
   decide: (tool_use_id: string, allow: boolean) => void;
   batchDecide: (allow: boolean) => void;
@@ -110,6 +112,7 @@ export function useNavettedWS(): UseNavettedWSResult {
   const [unreadSessions, setUnreadSessions] = useState<Set<string>>(new Set());
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
+  const [connectionLost, setConnectionLost] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const lastSeqRef = useRef(0);
@@ -182,24 +185,30 @@ export function useNavettedWS(): UseNavettedWSResult {
   }, []);
 
   const listDir = useCallback((path: string, cb: (ev: DirListingEvent) => void) => {
-    dirListingCallbackRef.current = cb;
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'list_dir', path }));
+    if (wsRef.current?.readyState !== WebSocket.OPEN) {
+      cb({ type: 'dir_listing', path, entries: [], error: 'Not connected' } as DirListingEvent);
+      return;
     }
+    dirListingCallbackRef.current = cb;
+    wsRef.current.send(JSON.stringify({ type: 'list_dir', path }));
   }, []);
 
   const readFile = useCallback((path: string, cb: (ev: FileContentEvent) => void) => {
-    fileContentCallbackRef.current = cb;
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'read_file', path }));
+    if (wsRef.current?.readyState !== WebSocket.OPEN) {
+      cb({ type: 'file_content', path, error: 'Not connected' } as FileContentEvent);
+      return;
     }
+    fileContentCallbackRef.current = cb;
+    wsRef.current.send(JSON.stringify({ type: 'read_file', path }));
   }, []);
 
   const writeFile = useCallback((path: string, content: string, cb: (ev: FileWriteResultEvent) => void) => {
-    fileWriteCallbackRef.current = cb;
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'write_file', path, content }));
+    if (wsRef.current?.readyState !== WebSocket.OPEN) {
+      cb({ type: 'file_written', path, ok: false, error: 'Not connected' } as FileWriteResultEvent);
+      return;
     }
+    fileWriteCallbackRef.current = cb;
+    wsRef.current.send(JSON.stringify({ type: 'write_file', path, content }));
   }, []);
 
   const kill = useCallback((sessionId?: string) => {
@@ -771,10 +780,15 @@ export function useNavettedWS(): UseNavettedWSResult {
 
       if (!shouldReconnectRef.current || serverConfigRef.current === null) return;
 
-      // Schedule reconnect with exponential backoff
+      if (reconnectDelayRef.current > 30000) {
+        setReconnecting(false);
+        setConnectionLost(true);
+        return;
+      }
+
       setReconnecting(true);
       const delay = reconnectDelayRef.current;
-      reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 30000);
+      reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 60000);
       reconnectTimerRef.current = setTimeout(() => {
         reconnectTimerRef.current = null;
         if (!shouldReconnectRef.current || serverConfigRef.current === null) return;
@@ -784,12 +798,22 @@ export function useNavettedWS(): UseNavettedWSResult {
     };
   }, [processEvent]);
 
+  const retry = useCallback(() => {
+    if (!serverConfigRef.current) return;
+    setConnectionLost(false);
+    reconnectDelayRef.current = 1000;
+    setReconnectCount(0);
+    setReconnecting(true);
+    connectWS(serverConfigRef.current, lastSeqRef.current);
+  }, [connectWS]);
+
   const connect = useCallback((config: ServerConfig) => {
     serverConfigRef.current = config;
     shouldReconnectRef.current = true;
     reconnectDelayRef.current = 1000;
     setReconnectCount(0);
     setReconnecting(false);
+    setConnectionLost(false);
     connectWS(config, storedSinceRef.current);
   }, [connectWS]);
 
@@ -815,7 +839,9 @@ export function useNavettedWS(): UseNavettedWSResult {
     scheduledSessions,
     reconnecting,
     reconnectCount,
+    connectionLost,
     connect,
+    retry,
     disconnect,
     decide,
     batchDecide,

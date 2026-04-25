@@ -44,6 +44,8 @@ interface MainScreenProps {
   notifyConfig: NotifyConfig | null;
   reconnecting: boolean;
   reconnectCount: number;
+  connectionLost: boolean;
+  onRetry: () => void;
   onDecide: (tool_use_id: string, allow: boolean) => void;
   onBatchDecide: (allow: boolean) => void;
   onDisconnect: () => void;
@@ -113,6 +115,8 @@ export function MainScreen({
   notifyConfig,
   reconnecting,
   reconnectCount,
+  connectionLost,
+  onRetry,
   onDecide,
   onBatchDecide,
   onDisconnect,
@@ -318,6 +322,7 @@ export function MainScreen({
         listDir={listDir}
         readFile={readFile}
         writeFile={writeFile}
+        onSetWorkDir={setWorkDir}
         initialPath={workDir || '~'}
       />
       <SettingsScreen
@@ -387,6 +392,22 @@ export function MainScreen({
           <Button mode="text" textColor={theme.colors.onSurfaceVariant} onPress={onDisconnect} compact>Disconnect</Button>
         )}
       </Appbar.Header>
+
+      {connectionLost && (
+        <View style={[styles.connectionLostOverlay, { backgroundColor: theme.colors.background }]}>
+          <View style={styles.connectionLostCard}>
+            <Text style={[styles.connectionLostIcon, { color: theme.colors.error }]}>!</Text>
+            <Text style={[styles.connectionLostTitle, { color: theme.colors.onSurface }]}>Connection Lost</Text>
+            <Text style={[styles.connectionLostBody, { color: theme.colors.onSurfaceVariant }]}>
+              Could not reach the daemon after multiple attempts.
+            </Text>
+            <View style={styles.connectionLostActions}>
+              <Button mode="contained" onPress={onRetry} style={{ flex: 1 }}>Retry</Button>
+              <Button mode="outlined" onPress={onDisconnect} style={{ flex: 1 }}>Disconnect</Button>
+            </View>
+          </View>
+        </View>
+      )}
 
       <View style={styles.contentWrapper}>
       {/* Session dashboard (multiple sessions) or pill switcher (single session) */}
@@ -687,4 +708,22 @@ const styles = StyleSheet.create({
   logHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   shareBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1 },
   logBody: { maxHeight: 320 },
+
+  connectionLostOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  connectionLostCard: {
+    alignItems: 'center',
+    gap: 12,
+    maxWidth: 320,
+    width: '100%',
+  },
+  connectionLostIcon: { fontSize: 48, fontWeight: '700' },
+  connectionLostTitle: { fontSize: 20, fontWeight: '700' },
+  connectionLostBody: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  connectionLostActions: { flexDirection: 'row', gap: 12, marginTop: 8, width: '100%' },
 });

@@ -35,7 +35,7 @@ export default function App() {
 
 function AppInner() {
   const { theme, isDark } = useThemeMode();
-  const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, testNotificationResult, reconnecting, reconnectCount, connect, disconnect, decide, batchDecide, run, kill, sendInput, getNotifyConfig, sendTestNotification, listDir, readFile, writeFile, skills, listSkills, pastSessions, sessionHistory, listPastSessions, getSessionHistory, scheduledSessions, scheduleSession, cancelScheduledSession, listScheduledSessions, savedPrompts, listPrompts, savePrompt, updatePrompt, deletePrompt, secrets, listSecrets, setSecret, deleteSecret, devices, listDevices, revokeDevice, renameDevice, approvalPolicies, getApprovalPolicies, setApprovalPolicy, deleteApprovalPolicy, containers, listContainers, mcpServers, listMcpServers, searchResults, searchSessions, hasUnread } = useNavettedWS();
+  const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, testNotificationResult, reconnecting, reconnectCount, connectionLost, connect, retry, disconnect, decide, batchDecide, run, kill, sendInput, getNotifyConfig, sendTestNotification, listDir, readFile, writeFile, skills, listSkills, pastSessions, sessionHistory, listPastSessions, getSessionHistory, scheduledSessions, scheduleSession, cancelScheduledSession, listScheduledSessions, savedPrompts, listPrompts, savePrompt, updatePrompt, deletePrompt, secrets, listSecrets, setSecret, deleteSecret, devices, listDevices, revokeDevice, renameDevice, approvalPolicies, getApprovalPolicies, setApprovalPolicy, deleteApprovalPolicy, containers, listContainers, mcpServers, listMcpServers, searchResults, searchSessions, hasUnread } = useNavettedWS();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [isLocked, setIsLocked] = useState(false);
 
@@ -113,7 +113,7 @@ function AppInner() {
     await SecureStore.deleteItemAsync(LAST_CONFIG_KEY);
   };
 
-  const isConnected = status === 'connected' || status === 'authenticating' || status === 'connecting';
+  const isConnected = status === 'connected' || status === 'authenticating' || status === 'connecting' || reconnecting || connectionLost;
 
   return (
     <PaperProvider theme={theme}>
@@ -138,6 +138,8 @@ function AppInner() {
               notifyConfig={notifyConfig}
               reconnecting={reconnecting}
               reconnectCount={reconnectCount}
+              connectionLost={connectionLost}
+              onRetry={retry}
               onDecide={decide}
               onBatchDecide={batchDecide}
               onDisconnect={handleDisconnect}

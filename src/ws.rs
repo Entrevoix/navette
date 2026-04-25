@@ -575,8 +575,10 @@ where
                                 let client_id2 = client_id.clone();
                                 let response = tokio::task::spawn_blocking(move || {
                                     let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+                                    let home_canonical = std::fs::canonicalize(&home)
+                                        .unwrap_or_else(|_| std::path::PathBuf::from(&home));
                                     let expanded = if raw_path == "~" || raw_path.starts_with("~/") {
-                                        raw_path.replacen('~', &home, 1)
+                                        raw_path.replacen('~', home_canonical.to_string_lossy().as_ref(), 1)
                                     } else {
                                         raw_path.to_string()
                                     };
@@ -592,7 +594,7 @@ where
                                         }
                                     };
 
-                                    let result = if !canonical.starts_with(&home) {
+                                    let result = if !canonical.starts_with(&home_canonical) {
                                         serde_json::json!({
                                             "type": "dir_listing",
                                             "path": canonical.to_string_lossy(),
