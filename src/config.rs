@@ -29,6 +29,7 @@ pub struct Config {
     pub tls_key_path: Option<String>,
     #[allow(dead_code)]
     pub auto_compact_threshold: Option<u8>,
+    #[allow(dead_code)]
     pub mosh_enabled: bool,
 }
 
