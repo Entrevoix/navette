@@ -488,7 +488,7 @@ export function MainScreen({
 
       {/* New session input (only when idle) */}
       {!isRunning && (
-        <View style={[styles.runPanel, { borderTopColor: theme.colors.outlineVariant }]}>
+        <View style={[styles.runPanel, { backgroundColor: theme.colors.elevation.level1 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.agentRow} contentContainerStyle={styles.agentRowContent}>
             {AGENTS.map(a => (
               <Chip
@@ -515,8 +515,7 @@ export function MainScreen({
 
           <View style={styles.actionRow}>
             <VoiceButton onTranscript={handleVoiceTranscript} />
-            <View style={styles.actionSpacer} />
-            <Button mode="contained" onPress={handleRun} disabled={!prompt.trim()} style={{ minHeight: 44 }}>
+            <Button mode="contained" onPress={handleRun} disabled={!prompt.trim()} style={{ flex: 1, minHeight: 44 }}>
               Run
             </Button>
           </View>
@@ -657,11 +656,10 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 13, fontWeight: '500' },
   seqBadge: { fontSize: 11, marginLeft: 4 },
 
-  runPanel: { borderTopWidth: 1, padding: 12, gap: 8 },
+  runPanel: { borderRadius: 16, marginHorizontal: 8, marginBottom: 8, paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
   input: { borderRadius: 8, borderWidth: 1, padding: 10, fontSize: 14 },
   promptInput: { minHeight: 52, maxHeight: 120, textAlignVertical: 'top' },
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  actionSpacer: { flex: 1 },
   agentRow: { flexGrow: 0 },
   agentRowContent: { flexDirection: 'row', gap: 6, paddingVertical: 4 },
   dirBtn: { borderRadius: 8, borderWidth: 1, padding: 10 },
@@ -679,7 +677,7 @@ const styles = StyleSheet.create({
   toggleDot: { width: 8, height: 8, borderRadius: 4 },
   skipPermsLabelCol: { flex: 1 },
 
-  advancedHeader: { paddingVertical: 6, paddingHorizontal: 2 },
+  advancedHeader: { paddingVertical: 2, paddingHorizontal: 2 },
   advancedHeaderText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
   advancedBody: { gap: 8 },
   advancedInput: { fontSize: 13 },

@@ -17,7 +17,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Button, IconButton, useTheme } from 'react-native-paper';
+import { Button, Icon, IconButton, useTheme } from 'react-native-paper';
 import { ApprovalCard } from './ApprovalCard';
 import { BatchApprovalBar } from './BatchApprovalBar';
 import { FileChip } from './FileChip';
@@ -288,6 +288,7 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
     return (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.emptyWrapper} keyboardVerticalOffset={64}>
         <View style={styles.empty}>
+          <Icon source="chat-outline" size={48} color={theme.colors.outlineVariant} />
           <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>No conversation yet</Text>
         </View>
         {inputBar}
@@ -351,7 +352,7 @@ const styles = StyleSheet.create({
   emptyWrapper: { flex: 1 },
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24, gap: 10 },
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
   emptyText: { fontSize: 14 },
   inputBar: {
     flexDirection: 'row',

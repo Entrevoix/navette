@@ -1228,18 +1228,6 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       </Modal>
 
       <View style={styles.orbContainer}>
-        {isListening && (
-          <>
-            <Animated.View style={[styles.ring, { borderColor: theme.colors.primary }, {
-              opacity: ring1Anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.7, 0.4, 0] }),
-              transform: [{ scale: ring1Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] }) }],
-            }]} />
-            <Animated.View style={[styles.ring, { borderColor: theme.colors.primary }, {
-              opacity: ring2Anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.7, 0.4, 0] }),
-              transform: [{ scale: ring2Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] }) }],
-            }]} />
-          </>
-        )}
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <Pressable
             onPress={handleToggle}
@@ -1265,25 +1253,25 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
 
 const styles = StyleSheet.create({
   btn: {
-    width: 64, height: 64, borderRadius: 32,
+    width: 44, height: 44, borderRadius: 22,
     borderWidth: 1.5,
     alignItems: 'center', justifyContent: 'center',
   },
   btnDisabled: { opacity: 0.35 },
   orbContainer: {
-    width: 160,
-    height: 160,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ring: {
     position: 'absolute',
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 2,
   },
-  icon: { fontSize: 26 },
+  icon: { fontSize: 20 },
   errSheetTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
   errSheetMsg: { fontSize: 15, lineHeight: 22 },
   diagScroll: { maxHeight: 300, borderRadius: 8, padding: 10 },
