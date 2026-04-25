@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { DiffView } from './DiffView';
+import { toolInputToDiff } from '../utils/diff';
 import {
   AssistantEvent,
   EventFrame,
@@ -58,6 +59,7 @@ interface ToolCallRowProps {
 export function ToolCallRow({ toolUseId: _toolUseId, name, input, resultContent }: ToolCallRowProps) {
   const [expanded, setExpanded] = useState(false);
   const summary = summarizeInput(name, input);
+  const diffLines = toolInputToDiff(name, input);
 
   return (
     <View style={tcStyles.container}>
@@ -75,14 +77,15 @@ export function ToolCallRow({ toolUseId: _toolUseId, name, input, resultContent 
       </Pressable>
       {expanded && (
         <View style={tcStyles.body}>
-          <Text selectable style={tcStyles.code}>{JSON.stringify(input, null, 2)}</Text>
+          {diffLines ? <DiffView lines={diffLines} /> : (
+            <Text selectable style={tcStyles.code}>{JSON.stringify(input, null, 2)}</Text>
+          )}
           {resultContent !== undefined && (
             <>
               <View style={tcStyles.divider} />
               <Text selectable style={tcStyles.result}>
                 {resultContent.length > 4000 ? resultContent.slice(0, 4000) + '\n…' : resultContent}
               </Text>
-              <DiffView content={resultContent} />
             </>
           )}
         </View>

@@ -42,6 +42,7 @@ pub struct SessionEntry {
     pub prompt: String,
     pub container: Option<String>,
     pub command: Option<String>,
+    pub agent_type: String,
     pub started_at: f64,
     /// Fires to kill the session; taken by the kill handler.
     pub kill_tx: Option<oneshot::Sender<()>>,
@@ -60,6 +61,7 @@ pub struct RunRequest {
     pub dangerously_skip_permissions: bool,
     pub work_dir: Option<String>,
     pub command: Option<String>,
+    pub agent: String,
     pub inject_secrets: bool,
 }
 
@@ -255,6 +257,7 @@ async fn main() -> Result<()> {
                             prompt: prompt.clone(),
                             container: container.clone(),
                             command: command.clone(),
+                            agent_type: "claude".to_string(),
                             started_at: now,
                             kill_tx: Some(kill_tx),
                             input_tokens: Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -271,6 +274,7 @@ async fn main() -> Result<()> {
                         dangerously_skip_permissions: false,
                         work_dir: None,
                         command,
+                        agent: "claude".to_string(),
                         inject_secrets: false,
                     };
                     tracing::info!(scheduled_id = %id, %session_id, "scheduler: firing session");
@@ -333,6 +337,7 @@ pub async fn run_session(
         "container": req.container,
         "dangerously_skip_permissions": req.dangerously_skip_permissions,
         "command": req.command,
+        "agent_type": req.agent,
     }))
     .unwrap_or_default();
     let seq = {
@@ -391,6 +396,7 @@ pub async fn run_session(
         req.dangerously_skip_permissions,
         req.work_dir.as_deref(),
         req.command.as_deref(),
+        &req.agent,
         &session_id,
         kill_rx,
         db.clone(),
@@ -450,6 +456,7 @@ pub async fn sessions_snapshot(sessions: &Sessions) -> Vec<serde_json::Value> {
                 "prompt": e.prompt,
                 "container": e.container,
                 "command": e.command,
+                "agent_type": e.agent_type,
                 "started_at": e.started_at,
                 "input_tokens": e.input_tokens.load(Ordering::Relaxed),
                 "output_tokens": e.output_tokens.load(Ordering::Relaxed),

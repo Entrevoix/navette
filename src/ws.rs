@@ -27,6 +27,10 @@ use crate::{BufferedDecisions, Decision, PendingApprovals, Sessions};
 /// Broadcast channel payload: (seq, unix_ts, raw_json_string)
 pub type EventTx = broadcast::Sender<(i64, f64, String)>;
 
+pub(crate) fn is_valid_agent(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 pub fn load_tls_acceptor(cfg: &Config) -> Result<Option<TlsAcceptor>> {
     let (Some(cert_path), Some(key_path)) = (&cfg.tls_cert_path, &cfg.tls_key_path) else {
         return Ok(None);
@@ -355,6 +359,12 @@ where
                                         .and_then(|v| v.as_str())
                                         .filter(|s| !s.is_empty())
                                         .map(|s| s.to_string());
+                                    let agent = v
+                                        .get("agent")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| is_valid_agent(s))
+                                        .unwrap_or("claude")
+                                        .to_string();
 
                                     let session_id = new_session_id();
                                     let (kill_tx, kill_rx) = oneshot::channel::<()>();
@@ -364,6 +374,7 @@ where
                                         prompt: prompt.to_string(),
                                         container: container.clone(),
                                         command: command.clone(),
+                                        agent_type: agent.clone(),
                                         started_at: unix_ts(),
                                         kill_tx: Some(kill_tx),
                                         input_tokens: Arc::new(AtomicU64::new(0)),
@@ -384,6 +395,7 @@ where
                                         dangerously_skip_permissions,
                                         work_dir,
                                         command,
+                                        agent,
                                         inject_secrets,
                                     };
                                     tokio::spawn(crate::run_session(
@@ -1549,6 +1561,7 @@ mod tests {
             tls_cert_path: None,
             tls_key_path: None,
             auto_compact_threshold: None,
+            mosh_enabled: false,
         };
         assert!(load_tls_acceptor(&cfg).unwrap().is_none());
     }
@@ -1578,6 +1591,7 @@ mod tests {
             tls_cert_path: Some(cert.to_string_lossy().into_owned()),
             tls_key_path: Some(key.to_string_lossy().into_owned()),
             auto_compact_threshold: None,
+            mosh_enabled: false,
         };
         assert!(load_tls_acceptor(&cfg).unwrap().is_some());
 
@@ -1689,5 +1703,44 @@ abc | valid-name | running | some-image
         assert_eq!(result[0]["name"], "alpha");
         assert_eq!(result[1]["name"], "middle");
         assert_eq!(result[2]["name"], "zebra");
+    }
+
+    #[test]
+    fn valid_agent_accepts_alphanumeric() {
+        assert!(is_valid_agent("claude"));
+        assert!(is_valid_agent("codex"));
+        assert!(is_valid_agent("gemini2"));
+    }
+
+    #[test]
+    fn valid_agent_accepts_hyphens_underscores() {
+        assert!(is_valid_agent("my-agent"));
+        assert!(is_valid_agent("my_agent"));
+        assert!(is_valid_agent("claude-code-v2"));
+    }
+
+    #[test]
+    fn valid_agent_rejects_empty() {
+        assert!(!is_valid_agent(""));
+    }
+
+    #[test]
+    fn valid_agent_rejects_special_chars() {
+        assert!(!is_valid_agent("agent;rm -rf"));
+        assert!(!is_valid_agent("../etc/passwd"));
+        assert!(!is_valid_agent("agent name"));
+        assert!(!is_valid_agent("agent\x00null"));
+    }
+
+    #[test]
+    fn valid_agent_rejects_path_separators() {
+        assert!(!is_valid_agent("path/to/agent"));
+        assert!(!is_valid_agent("agent\\cmd"));
+    }
+
+    #[test]
+    fn valid_agent_rejects_non_ascii() {
+        assert!(!is_valid_agent("agënt"));
+        assert!(!is_valid_agent("代理"));
     }
 }

@@ -29,6 +29,7 @@ pub struct Config {
     pub tls_key_path: Option<String>,
     #[allow(dead_code)]
     pub auto_compact_threshold: Option<u8>,
+    pub mosh_enabled: bool,
 }
 
 impl Config {
@@ -115,6 +116,10 @@ pub fn load_or_create() -> Result<Config> {
             .get("auto_compact_threshold")
             .and_then(|v| v.as_integer())
             .map(|v| v.clamp(0, 100) as u8);
+        let mosh_enabled = table
+            .get("mosh_enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         // Generate and persist ntfy_topic on first access for existing configs.
         // Atomic write: build new content, write to .tmp, fsync, rename.
@@ -154,6 +159,7 @@ pub fn load_or_create() -> Result<Config> {
             tls_cert_path,
             tls_key_path,
             auto_compact_threshold,
+            mosh_enabled,
         });
     }
 
@@ -211,6 +217,7 @@ pub fn load_or_create() -> Result<Config> {
         tls_cert_path: Some(cert_str.into_owned()),
         tls_key_path: Some(key_str.into_owned()),
         auto_compact_threshold: None,
+        mosh_enabled: false,
     })
 }
 
@@ -329,6 +336,7 @@ mod tests {
             tls_cert_path: None,
             tls_key_path: None,
             auto_compact_threshold: None,
+            mosh_enabled: false,
         }
     }
 

@@ -92,6 +92,7 @@ export interface SessionInfo {
   session_id: string;
   prompt: string;
   container?: string | null;
+  agent_type?: string;
   started_at: number;
   input_tokens?: number;
   output_tokens?: number;
@@ -108,6 +109,12 @@ export interface ServerConfig {
   token: string;
   container?: string;
   tls?: boolean;
+  useMosh?: boolean;
+}
+
+export interface MoshInfo {
+  port: number;
+  key: string;
 }
 
 export interface DirEntry {

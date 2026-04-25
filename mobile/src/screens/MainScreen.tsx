@@ -43,7 +43,7 @@ interface MainScreenProps {
   onDecide: (tool_use_id: string, allow: boolean) => void;
   onBatchDecide: (allow: boolean) => void;
   onDisconnect: () => void;
-  onRun: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean) => void;
+  onRun: (prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean, agentType?: string) => void;
   onKill: (sessionId?: string) => void;
   onSendInput: (text: string) => void;
   onRequestNotifyConfig: () => void;
@@ -276,9 +276,9 @@ export function MainScreen({
     const p = prompt.trim();
     if (!p) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const agentCommand = customCommand.trim() || (selectedAgent !== 'claude' ? selectedAgent : undefined);
+    const cmd = customCommand.trim() || undefined;
     const wd = workDir.trim() || undefined;
-    onRun(p, container.trim() || undefined, dangerouslySkipPermissions, wd, agentCommand, injectSecrets);
+    onRun(p, container.trim() || undefined, dangerouslySkipPermissions, wd, cmd, injectSecrets, selectedAgent);
     if (wd) {
       const key = container.trim() ? `navette_workdir_${container.trim()}` : 'navette_workdir_host';
       AsyncStorage.setItem(key, wd);

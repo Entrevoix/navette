@@ -29,6 +29,7 @@ pub async fn spawn_and_process(
     dangerously_skip_permissions: bool,
     work_dir: Option<&str>,
     command: Option<&str>,
+    agent: &str,
     session_id: &str,
     kill_rx: oneshot::Receiver<()>,
     db: Arc<Mutex<Connection>>,
@@ -45,7 +46,13 @@ pub async fn spawn_and_process(
     }
 
     let env_bin = std::env::var("CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
-    let claude_bin = command.unwrap_or(&env_bin).to_string();
+    let claude_bin = if let Some(cmd) = command {
+        cmd.to_string()
+    } else if agent != "claude" {
+        agent.to_string()
+    } else {
+        env_bin
+    };
 
     // Open a PTY so Claude's isatty() returns true → interactive mode → PreToolUse hooks fire.
     // With --output-format stream-json, output is machine-readable JSON even in TTY mode.
@@ -66,8 +73,9 @@ pub async fn spawn_and_process(
         Some(c) => {
             tracing::info!(
                 container = c,
+                agent,
                 dangerously_skip_permissions,
-                "spawning claude inside distrobox container"
+                "spawning agent inside distrobox container"
             );
             let mut cmd = CommandBuilder::new("distrobox-enter");
             let mut args = vec![
@@ -87,7 +95,7 @@ pub async fn spawn_and_process(
             cmd
         }
         None => {
-            tracing::info!(dangerously_skip_permissions, "spawning claude");
+            tracing::info!(agent, dangerously_skip_permissions, "spawning agent");
             let mut cmd = CommandBuilder::new(&claude_bin);
             let mut args = vec!["--output-format", "stream-json", "--verbose"];
             if dangerously_skip_permissions {
@@ -358,9 +366,102 @@ fn write_hook_settings() -> Result<()> {
     Ok(())
 }
 
+fn parse_mosh_connect(stdout: &str) -> Result<(u16, String)> {
+    for line in stdout.lines() {
+        if let Some(rest) = line.strip_prefix("MOSH CONNECT ") {
+            let mut parts = rest.splitn(2, ' ');
+            let port: u16 = parts
+                .next()
+                .unwrap_or("0")
+                .parse()
+                .context("invalid mosh port")?;
+            let key = parts.next().unwrap_or("").to_string();
+            if port == 0 || key.is_empty() {
+                anyhow::bail!("mosh-server returned invalid port/key");
+            }
+            return Ok((port, key));
+        }
+    }
+    anyhow::bail!("mosh-server did not output MOSH CONNECT line")
+}
+
+#[allow(dead_code)]
+pub fn spawn_mosh_server() -> Result<(u16, String)> {
+    let out = std::process::Command::new("mosh-server")
+        .args(["new", "-s", "-c", "256"])
+        .output()
+        .context("failed to spawn mosh-server")?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        anyhow::bail!("mosh-server exited with {}: {}", out.status, stderr.trim());
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    parse_mosh_connect(&stdout)
+}
+
 fn unix_ts() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_mosh_connect_valid() {
+        let (port, key) = parse_mosh_connect("\n\nMOSH CONNECT 60001 abc123def\n").unwrap();
+        assert_eq!(port, 60001);
+        assert_eq!(key, "abc123def");
+    }
+
+    #[test]
+    fn parse_mosh_connect_with_leading_output() {
+        let stdout = "mosh-server (mosh 1.4.0)\nCopyright ...\n\nMOSH CONNECT 60042 XYZKEY99\n";
+        let (port, key) = parse_mosh_connect(stdout).unwrap();
+        assert_eq!(port, 60042);
+        assert_eq!(key, "XYZKEY99");
+    }
+
+    #[test]
+    fn parse_mosh_connect_no_line() {
+        assert!(parse_mosh_connect("some random output\n").is_err());
+    }
+
+    #[test]
+    fn parse_mosh_connect_empty() {
+        assert!(parse_mosh_connect("").is_err());
+    }
+
+    #[test]
+    fn parse_mosh_connect_empty_key() {
+        assert!(parse_mosh_connect("MOSH CONNECT 60001 \n").is_err());
+    }
+
+    #[test]
+    fn parse_mosh_connect_invalid_port() {
+        assert!(parse_mosh_connect("MOSH CONNECT notaport key123\n").is_err());
+    }
+
+    #[test]
+    fn parse_mosh_connect_zero_port() {
+        assert!(parse_mosh_connect("MOSH CONNECT 0 key123\n").is_err());
+    }
+
+    #[test]
+    fn strip_ansi_removes_csi() {
+        assert_eq!(strip_ansi("\x1b[32mhello\x1b[0m"), "hello");
+    }
+
+    #[test]
+    fn strip_ansi_removes_osc() {
+        assert_eq!(strip_ansi("\x1b]0;title\x07text"), "text");
+    }
+
+    #[test]
+    fn strip_ansi_passthrough_plain() {
+        assert_eq!(strip_ansi("plain text"), "plain text");
+    }
 }

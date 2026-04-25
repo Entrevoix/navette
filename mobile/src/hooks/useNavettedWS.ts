@@ -166,7 +166,7 @@ export function useNavettedWS(): UseNavettedWSResult {
     pendingApprovals.forEach(a => decide(a.tool_use_id, allow));
   }, [pendingApprovals, decide]);
 
-  const run = useCallback((prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean) => {
+  const run = useCallback((prompt: string, container?: string, dangerouslySkipPermissions?: boolean, workDir?: string, command?: string, injectSecrets?: boolean, agentType?: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'run',
@@ -176,6 +176,7 @@ export function useNavettedWS(): UseNavettedWSResult {
         work_dir: workDir || null,
         command: command || null,
         inject_secrets: injectSecrets ?? false,
+        agent: agentType || 'claude',
       }));
     }
   }, []);

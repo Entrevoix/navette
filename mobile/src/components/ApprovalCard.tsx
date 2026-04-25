@@ -15,6 +15,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { PendingApproval } from '../types';
+import { toolInputToDiff } from '../utils/diff';
+import { DiffView } from './DiffView';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.35;
@@ -85,6 +87,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
   const translateX = useSharedValue(0);
   const [expanded, setExpanded] = useState(false);
   const fields = renderFields(approval.tool_name, approval.tool_input);
+  const diffLines = toolInputToDiff(approval.tool_name, approval.tool_input);
 
   const [secsRemaining, setSecsRemaining] = useState<number | null>(
     approval.expires_at != null
@@ -202,7 +205,9 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
             </View>
           )}
 
-          {secondaryFields.length > 0 && (
+          {diffLines && <DiffView lines={diffLines} />}
+
+          {secondaryFields.length > 0 && !diffLines && (
             <Pressable onPress={() => setExpanded(x => !x)} style={styles.inputArea}>
               <ScrollView
                 style={[styles.inputScroll, expanded ? styles.inputScrollExpanded : styles.inputScrollCollapsed]}
