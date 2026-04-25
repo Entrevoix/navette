@@ -114,6 +114,7 @@ export interface StatusColors {
   disconnected: string;
 }
 
+// Takes theme directly so connected/error stay in sync with the MD3 palette; sibling helpers hardcode values because MD3 has no success/warning/info tokens.
 export function getStatusColors(theme: MD3Theme, isDark: boolean): StatusColors {
   return {
     connected: theme.colors.primary,

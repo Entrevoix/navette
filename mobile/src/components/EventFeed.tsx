@@ -56,11 +56,9 @@ function eventSummary(frame: EventFrame, colors: EventTypeColors): EventSummary 
   }
 }
 
-function EventRow({ frame }: { frame: EventFrame }) {
+function EventRow({ frame, eventColors }: { frame: EventFrame; eventColors: EventTypeColors }) {
   const theme = useTheme();
-  const { isDark } = useThemeMode();
   const [expanded, setExpanded] = useState(false);
-  const eventColors = getEventTypeColors(isDark);
   const { label, detail, color, fullContent } = eventSummary(frame, eventColors);
   const time = new Date(frame.ts * 1000).toLocaleTimeString([], {
     hour: '2-digit',
@@ -91,6 +89,9 @@ function EventRow({ frame }: { frame: EventFrame }) {
 
 export function EventFeed({ events }: EventFeedProps) {
   const theme = useTheme();
+  const { isDark } = useThemeMode();
+  const eventColors = getEventTypeColors(isDark);
+
   if (events.length === 0) {
     return (
       <View style={styles.empty}>
@@ -103,7 +104,7 @@ export function EventFeed({ events }: EventFeedProps) {
     <FlatList
       data={[...events].reverse()}
       keyExtractor={(item: EventFrame) => String(item.seq)}
-      renderItem={({ item }: { item: EventFrame }) => <EventRow frame={item} />}
+      renderItem={({ item }: { item: EventFrame }) => <EventRow frame={item} eventColors={eventColors} />}
       contentContainerStyle={styles.list}
       showsVerticalScrollIndicator={false}
     />
