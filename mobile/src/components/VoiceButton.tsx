@@ -253,11 +253,6 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const [pickerOptions, setPickerOptions] = useState<RecognizerOption[]>([]);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
-  const ring1Anim = useRef(new Animated.Value(0)).current;
-  const ring2Anim = useRef(new Animated.Value(0)).current;
-  const ring1Loop = useRef<Animated.CompositeAnimation | null>(null);
-  const ring2Loop = useRef<Animated.CompositeAnimation | null>(null);
-  const ring2Timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const started = useRef(false);
   const whisperRecording = useRef<Audio.Recording | null>(null);
@@ -342,12 +337,9 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   useEffect(() => {
     return () => {
       if (errTimeout.current) { clearTimeout(errTimeout.current); errTimeout.current = null; }
-      if (ring2Timeout.current) { clearTimeout(ring2Timeout.current); ring2Timeout.current = null; }
       if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       if (maxDurationTimer.current) { clearTimeout(maxDurationTimer.current); maxDurationTimer.current = null; }
       pulseLoop.current?.stop(); pulseLoop.current = null;
-      ring1Loop.current?.stop(); ring1Loop.current = null;
-      ring2Loop.current?.stop(); ring2Loop.current = null;
       if (started.current) {
         try { ExpoSpeechRecognitionModule.stop(); } catch { /* ignore */ }
         started.current = false;
@@ -453,10 +445,6 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
 
   const startPulse = () => {
     pulseAnim.setValue(1);
-    ring1Anim.setValue(0);
-    ring2Anim.setValue(0);
-
-    // Subtle breathing on the orb itself
     pulseLoop.current = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.08, duration: 900, useNativeDriver: true }),
@@ -464,35 +452,11 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       ])
     );
     pulseLoop.current.start();
-
-    // Ring 1 — starts immediately
-    ring1Loop.current = Animated.loop(
-      Animated.timing(ring1Anim, { toValue: 1, duration: 1800, useNativeDriver: true })
-    );
-    ring1Loop.current.start();
-
-    // Ring 2 — staggered 900ms behind ring 1
-    ring2Timeout.current = setTimeout(() => {
-      ring2Loop.current = Animated.loop(
-        Animated.timing(ring2Anim, { toValue: 1, duration: 1800, useNativeDriver: true })
-      );
-      ring2Loop.current.start();
-    }, 900);
   };
 
   const stopPulse = () => {
-    if (ring2Timeout.current !== null) {
-      clearTimeout(ring2Timeout.current);
-      ring2Timeout.current = null;
-    }
     pulseLoop.current?.stop();
-    ring1Loop.current?.stop();
-    ring2Loop.current?.stop();
-    ring1Loop.current = null;
-    ring2Loop.current = null;
     pulseAnim.setValue(1);
-    ring1Anim.setValue(0);
-    ring2Anim.setValue(0);
   };
 
   const stopListening = useCallback(() => {
@@ -1228,18 +1192,6 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       </Modal>
 
       <View style={styles.orbContainer}>
-        {isListening && (
-          <>
-            <Animated.View style={[styles.ring, { borderColor: theme.colors.primary }, {
-              opacity: ring1Anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.7, 0.4, 0] }),
-              transform: [{ scale: ring1Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] }) }],
-            }]} />
-            <Animated.View style={[styles.ring, { borderColor: theme.colors.primary }, {
-              opacity: ring2Anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.7, 0.4, 0] }),
-              transform: [{ scale: ring2Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] }) }],
-            }]} />
-          </>
-        )}
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <Pressable
             onPress={handleToggle}
@@ -1265,25 +1217,18 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
 
 const styles = StyleSheet.create({
   btn: {
-    width: 64, height: 64, borderRadius: 32,
+    width: 44, height: 44, borderRadius: 22,
     borderWidth: 1.5,
     alignItems: 'center', justifyContent: 'center',
   },
   btnDisabled: { opacity: 0.35 },
   orbContainer: {
-    width: 160,
-    height: 160,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ring: {
-    position: 'absolute',
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 2,
-  },
-  icon: { fontSize: 26 },
+  icon: { fontSize: 20 },
   errSheetTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
   errSheetMsg: { fontSize: 15, lineHeight: 22 },
   diagScroll: { maxHeight: 300, borderRadius: 8, padding: 10 },
