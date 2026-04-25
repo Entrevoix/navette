@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import * as SecureStore from 'expo-secure-store';
+import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, StyleSheet } from 'react-native';
+import { AppState, AppStateStatus } from 'react-native';
 
 import { ConnectScreen } from './src/screens/ConnectScreen';
 import { LockScreen } from './src/screens/LockScreen';
@@ -13,11 +15,24 @@ import { MainScreen } from './src/screens/MainScreen';
 import { useNavettedWS } from './src/hooks/useNavettedWS';
 import { ServerConfig } from './src/types';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { SnackbarProvider } from './src/SnackbarContext';
+import { ThemeProvider, useThemeMode } from './src/ThemeContext';
 
 
 const LAST_CONFIG_KEY = 'navette_last_config';
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AppInner />
+      </ThemeProvider>
+    </ErrorBoundary>
+  );
+}
+
+function AppInner() {
+  const { theme, isDark } = useThemeMode();
   const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, testNotificationResult, reconnecting, reconnectCount, connect, disconnect, decide, batchDecide, run, kill, sendInput, getNotifyConfig, sendTestNotification, listDir, readFile, writeFile, skills, listSkills, pastSessions, sessionHistory, listPastSessions, getSessionHistory, scheduledSessions, scheduleSession, cancelScheduledSession, listScheduledSessions, savedPrompts, listPrompts, savePrompt, updatePrompt, deletePrompt, secrets, listSecrets, setSecret, deleteSecret, devices, listDevices, revokeDevice, renameDevice, approvalPolicies, getApprovalPolicies, setApprovalPolicy, deleteApprovalPolicy, containers, listContainers, mcpServers, listMcpServers, searchResults, searchSessions, hasUnread } = useNavettedWS();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [isLocked, setIsLocked] = useState(false);
@@ -99,8 +114,10 @@ export default function App() {
   const isConnected = status === 'connected' || status === 'authenticating' || status === 'connecting';
 
   return (
-    <ErrorBoundary>
-      <GestureHandlerRootView style={styles.root}>
+    <PaperProvider theme={theme}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        <SnackbarProvider>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
         <SafeAreaProvider>
           {isLocked && isConnected ? (
             <LockScreen onUnlock={() => setIsLocked(false)} />
@@ -173,14 +190,8 @@ export default function App() {
             />
           )}
         </SafeAreaProvider>
+        </SnackbarProvider>
       </GestureHandlerRootView>
-    </ErrorBoundary>
+    </PaperProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
-});

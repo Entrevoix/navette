@@ -3,6 +3,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { DirEntry, DirListingEvent } from '../types';
 
 interface DirPickerProps {
@@ -14,6 +15,7 @@ interface DirPickerProps {
 }
 
 export function DirPicker({ visible, onClose, onSelect, listDir, initialPath = '~' }: DirPickerProps) {
+  const theme = useTheme();
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -44,22 +46,22 @@ export function DirPicker({ visible, onClose, onSelect, listDir, initialPath = '
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
           <Pressable onPress={onClose} style={styles.cancelBtn}>
-            <Text style={styles.cancelText}>Cancel</Text>
+            <Text style={[styles.cancelText, { color: theme.colors.onSurfaceVariant }]}>Cancel</Text>
           </Pressable>
-          <Text style={styles.title} numberOfLines={1}>Choose Directory</Text>
-          <Pressable onPress={() => { onSelect(currentPath); onClose(); }} style={styles.selectBtn}>
-            <Text style={styles.selectText}>Select</Text>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]} numberOfLines={1}>Choose Directory</Text>
+          <Pressable onPress={() => { onSelect(currentPath); onClose(); }} style={[styles.selectBtn, { backgroundColor: theme.colors.primaryContainer }]}>
+            <Text style={[styles.selectText, { color: theme.colors.primary }]}>Select</Text>
           </Pressable>
         </View>
 
         {/* Breadcrumb */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.breadcrumb}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.breadcrumb, { borderBottomColor: theme.colors.outlineVariant }]}>
           <Pressable onPress={() => navigate('/')} style={styles.crumb}>
-            <Text style={styles.crumbText}>/</Text>
+            <Text style={[styles.crumbText, { color: theme.colors.onSurfaceVariant }]}>/</Text>
           </Pressable>
           {pathParts.map((part, i) => (
             <Pressable
@@ -67,7 +69,11 @@ export function DirPicker({ visible, onClose, onSelect, listDir, initialPath = '
               onPress={() => navigate('/' + pathParts.slice(0, i + 1).join('/'))}
               style={styles.crumb}
             >
-              <Text style={[styles.crumbText, i === pathParts.length - 1 && styles.crumbActive]}>
+              <Text style={[
+                styles.crumbText,
+                { color: theme.colors.onSurfaceVariant },
+                i === pathParts.length - 1 && { color: theme.colors.onSurface, fontWeight: '600' },
+              ]}>
                 {part}
               </Text>
             </Pressable>
@@ -75,23 +81,23 @@ export function DirPicker({ visible, onClose, onSelect, listDir, initialPath = '
         </ScrollView>
 
         {/* Entries */}
-        {loading && <Text style={styles.status}>Loading…</Text>}
-        {error && <Text style={styles.errorText}>{error}</Text>}
+        {loading && <Text style={[styles.status, { color: theme.colors.onSurfaceVariant }]}>Loading…</Text>}
+        {error && <Text style={[styles.errorText, { color: theme.colors.error }]}>{error}</Text>}
         <ScrollView style={styles.list}>
           {currentPath !== '/' && (
-            <Pressable onPress={() => navigate(currentPath + '/..')} style={styles.entry}>
+            <Pressable onPress={() => navigate(currentPath + '/..')} style={[styles.entry, { borderBottomColor: theme.colors.outlineVariant }]}>
               <Text style={styles.entryIcon}>📁</Text>
-              <Text style={styles.entryName}>..</Text>
+              <Text style={[styles.entryName, { color: theme.colors.onSurface }]}>..</Text>
             </Pressable>
           )}
           {entries.map(entry => (
             <Pressable
               key={entry.name}
-              style={styles.entry}
+              style={[styles.entry, { borderBottomColor: theme.colors.outlineVariant }]}
               onPress={() => entry.is_dir ? navigate(currentPath + '/' + entry.name) : undefined}
             >
               <Text style={styles.entryIcon}>{entry.is_dir ? '📁' : '📄'}</Text>
-              <Text style={[styles.entryName, !entry.is_dir && styles.entryFile]}>
+              <Text style={[styles.entryName, { color: entry.is_dir ? theme.colors.onSurface : theme.colors.onSurfaceVariant }]}>
                 {entry.name}
               </Text>
             </Pressable>
@@ -99,8 +105,8 @@ export function DirPicker({ visible, onClose, onSelect, listDir, initialPath = '
         </ScrollView>
 
         {/* Current path footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerPath} numberOfLines={1}>{currentPath}</Text>
+        <View style={[styles.footer, { borderTopColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.footerPath, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>{currentPath}</Text>
         </View>
       </SafeAreaView>
     </Modal>
@@ -108,32 +114,29 @@ export function DirPicker({ visible, onClose, onSelect, listDir, initialPath = '
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
   },
   cancelBtn: { paddingHorizontal: 8, paddingVertical: 4 },
-  cancelText: { color: '#9ca3af', fontSize: 15 },
-  title: { color: '#e2e8f0', fontSize: 15, fontWeight: '600', flex: 1, textAlign: 'center' },
-  selectBtn: { paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#14532d', borderRadius: 6 },
-  selectText: { color: '#4ade80', fontSize: 15, fontWeight: '700' },
+  cancelText: { fontSize: 15 },
+  title: { fontSize: 15, fontWeight: '600', flex: 1, textAlign: 'center' },
+  selectBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  selectText: { fontSize: 15, fontWeight: '700' },
   breadcrumb: {
     flexGrow: 0,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
   },
   crumb: { paddingHorizontal: 6, paddingVertical: 2 },
-  crumbText: { color: '#71717a', fontSize: 13 },
-  crumbActive: { color: '#e2e8f0', fontWeight: '600' },
-  status: { color: '#6b7280', textAlign: 'center', paddingVertical: 20, fontSize: 13 },
-  errorText: { color: '#f87171', textAlign: 'center', paddingVertical: 20, fontSize: 13 },
+  crumbText: { fontSize: 13 },
+  status: { textAlign: 'center', paddingVertical: 20, fontSize: 13 },
+  errorText: { textAlign: 'center', paddingVertical: 20, fontSize: 13 },
   list: { flex: 1 },
   entry: {
     flexDirection: 'row',
@@ -141,11 +144,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#111',
   },
   entryIcon: { fontSize: 16, marginRight: 12 },
-  entryName: { color: '#e2e8f0', fontSize: 14 },
-  entryFile: { color: '#52525b' },
-  footer: { padding: 12, borderTopWidth: 1, borderTopColor: '#1a1a1a' },
-  footerPath: { color: '#6b7280', fontSize: 11, fontFamily: 'Menlo' },
+  entryName: { fontSize: 14 },
+  footer: { padding: 12, borderTopWidth: 1 },
+  footerPath: { fontSize: 11, fontFamily: 'Menlo' },
 });

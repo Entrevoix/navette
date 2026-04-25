@@ -3,14 +3,13 @@
 
 import React, { useEffect } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { ActivityIndicator, Button, useTheme } from 'react-native-paper';
 import type { McpServerInfo } from '../types';
 
 interface McpServersScreenProps {
@@ -26,6 +25,7 @@ export function McpServersScreen({
   servers,
   onRefresh,
 }: McpServersScreenProps) {
+  const theme = useTheme();
   const [hasLoaded, setHasLoaded] = React.useState(false);
 
   useEffect(() => {
@@ -43,31 +43,27 @@ export function McpServersScreen({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>MCP Servers</Text>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>MCP Servers</Text>
           <View style={styles.headerRight}>
-            <Pressable onPress={onRefresh} hitSlop={12} style={styles.refreshBtn}>
-              <Text style={styles.refreshText}>Refresh</Text>
-            </Pressable>
-            <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-              <Text style={styles.closeText}>Done</Text>
-            </Pressable>
+            <Button mode="text" onPress={onRefresh}>Refresh</Button>
+            <Button mode="text" onPress={onClose}>Done</Button>
           </View>
         </View>
 
-        <Text style={styles.pathHint}>~/.claude/settings.json</Text>
+        <Text style={[styles.pathHint, { color: theme.colors.onSurfaceVariant }]}>~/.claude/settings.json</Text>
 
         {loading ? (
           <View style={styles.loadingState}>
-            <ActivityIndicator size="large" color="#818cf8" />
-            <Text style={styles.loadingText}>Loading MCP servers...</Text>
+            <ActivityIndicator size="large" />
+            <Text style={[styles.loadingText, { color: theme.colors.onSurfaceVariant }]}>Loading MCP servers...</Text>
           </View>
         ) : servers.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>🔌</Text>
-            <Text style={styles.emptyText}>No MCP servers configured</Text>
-            <Text style={styles.emptySubtext}>
+            <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>No MCP servers configured</Text>
+            <Text style={[styles.emptySubtext, { color: theme.colors.onSurfaceVariant }]}>
               MCP servers are configured in ~/.claude/settings.json on the remote host.
             </Text>
           </View>
@@ -77,28 +73,28 @@ export function McpServersScreen({
             keyExtractor={(item) => item.name}
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => (
-              <View style={styles.card}>
-                <View style={styles.cardIcon}>
+              <View style={[styles.card, { backgroundColor: theme.colors.surfaceVariant }]}>
+                <View style={[styles.cardIcon, { backgroundColor: theme.colors.surface }]}>
                   <Text style={styles.cardIconText}>🔌</Text>
                 </View>
                 <View style={styles.cardBody}>
-                  <Text style={styles.serverName}>{item.name}</Text>
-                  <Text style={styles.serverCommand} numberOfLines={1}>
+                  <Text style={[styles.serverName, { color: theme.colors.onSurface }]}>{item.name}</Text>
+                  <Text style={[styles.serverCommand, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
                     {item.command}
                   </Text>
                   <View style={styles.badges}>
                     {item.args_count > 0 && (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{item.args_count} args</Text>
+                      <View style={[styles.badge, { backgroundColor: theme.colors.surface }]}>
+                        <Text style={[styles.badgeText, { color: theme.colors.onSurfaceVariant }]}>{item.args_count} args</Text>
                       </View>
                     )}
                     {item.env_count > 0 && (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{item.env_count} env</Text>
+                      <View style={[styles.badge, { backgroundColor: theme.colors.surface }]}>
+                        <Text style={[styles.badgeText, { color: theme.colors.onSurfaceVariant }]}>{item.env_count} env</Text>
                       </View>
                     )}
-                    <View style={styles.statusBadge}>
-                      <Text style={styles.statusBadgeText}>configured</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary }]}>
+                      <Text style={[styles.statusBadgeText, { color: theme.colors.primary }]}>configured</Text>
                     </View>
                   </View>
                 </View>
@@ -113,7 +109,7 @@ export function McpServersScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f1a' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -122,23 +118,17 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a2e',
   },
-  title: { color: '#f0f0f0', fontSize: 18, fontWeight: '700' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  refreshBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  refreshText: { color: '#818cf8', fontSize: 15, fontWeight: '600' },
-  closeBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  closeText: { color: '#4ade80', fontSize: 15, fontWeight: '600' },
+  title: { fontSize: 18, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   pathHint: {
-    color: '#444',
     fontSize: 11,
     fontFamily: 'Menlo',
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
   loadingState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
-  loadingText: { color: '#71717a', fontSize: 14 },
+  loadingText: { fontSize: 14 },
   emptyState: {
     flex: 1,
     alignItems: 'center',
@@ -147,13 +137,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyIcon: { fontSize: 48, marginBottom: 8 },
-  emptyText: { color: '#9ca3af', fontSize: 15, fontWeight: '600', textAlign: 'center' },
-  emptySubtext: { color: '#555', fontSize: 13, lineHeight: 18, textAlign: 'center' },
+  emptyText: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
+  emptySubtext: { fontSize: 13, lineHeight: 18, textAlign: 'center' },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#1e1e2e',
     borderRadius: 10,
     padding: 16,
     gap: 12,
@@ -162,30 +151,26 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#2a2a3e',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardIconText: { fontSize: 18 },
   cardBody: { flex: 1, gap: 4 },
-  serverName: { color: '#f0f0f0', fontSize: 15, fontWeight: '700', fontFamily: 'Menlo' },
-  serverCommand: { color: '#9ca3af', fontSize: 12, fontFamily: 'Menlo' },
+  serverName: { fontSize: 15, fontWeight: '700', fontFamily: 'Menlo' },
+  serverCommand: { fontSize: 12, fontFamily: 'Menlo' },
   badges: { flexDirection: 'row', gap: 6, marginTop: 4 },
   badge: {
-    backgroundColor: '#2a2a3e',
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  badgeText: { color: '#71717a', fontSize: 10, fontWeight: '600' },
+  badgeText: { fontSize: 10, fontWeight: '600' },
   statusBadge: {
-    backgroundColor: '#14280f',
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderWidth: 1,
-    borderColor: '#1f4a18',
   },
-  statusBadgeText: { color: '#4ade80', fontSize: 10, fontWeight: '600' },
+  statusBadgeText: { fontSize: 10, fontWeight: '600' },
   separator: { height: 8 },
 });

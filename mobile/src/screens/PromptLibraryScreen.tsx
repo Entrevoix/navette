@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Button, IconButton, useTheme } from 'react-native-paper';
 import type { SavedPrompt } from '../types';
 
 interface PromptLibraryScreenProps {
@@ -28,6 +29,7 @@ interface PromptLibraryScreenProps {
 export function PromptLibraryScreen({
   visible, onClose, prompts, onRefresh, onUse, onSave, onUpdate, onDelete,
 }: PromptLibraryScreenProps) {
+  const theme = useTheme();
   const [editorVisible, setEditorVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -92,61 +94,55 @@ export function PromptLibraryScreen({
       {/* Editor sub-modal */}
       <Modal visible={editorVisible} animationType="fade" transparent onRequestClose={() => setEditorVisible(false)}>
         <View style={styles.editorOverlay}>
-          <View style={styles.editorCard}>
-            <Text style={styles.editorTitle}>{editingId ? 'Edit Prompt' : 'New Prompt'}</Text>
+          <View style={[styles.editorCard, { backgroundColor: theme.colors.surfaceVariant }]}>
+            <Text style={[styles.editorTitle, { color: theme.colors.onSurface }]}>{editingId ? 'Edit Prompt' : 'New Prompt'}</Text>
             <TextInput
-              style={styles.editorInput}
+              style={[styles.editorInput, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
               value={title}
               onChangeText={setTitle}
               placeholder="Title"
-              placeholderTextColor="#555"
+              placeholderTextColor={theme.colors.onSurfaceVariant}
               autoFocus
             />
             <TextInput
-              style={[styles.editorInput, styles.editorBody]}
+              style={[styles.editorInput, styles.editorBody, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
               value={body}
-              onChangeText={setBody}
+              onChangeText={(b: string) => setBody(b)}
               placeholder="Prompt body..."
-              placeholderTextColor="#555"
+              placeholderTextColor={theme.colors.onSurfaceVariant}
               multiline
               textAlignVertical="top"
             />
             <View style={styles.editorActions}>
-              <Pressable style={styles.editorCancel} onPress={() => setEditorVisible(false)}>
-                <Text style={styles.editorCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.editorSave, (!title.trim() || !body.trim()) && styles.editorSaveDisabled]}
+              <Button mode="text" onPress={() => setEditorVisible(false)}>Cancel</Button>
+              <Button
+                mode="contained-tonal"
                 onPress={handleSave}
                 disabled={!title.trim() || !body.trim()}
               >
-                <Text style={styles.editorSaveText}>Save</Text>
-              </Pressable>
+                Save
+              </Button>
             </View>
           </View>
         </View>
       </Modal>
 
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Prompt Library</Text>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.headerTitle, { color: theme.colors.onSurface }]}>Prompt Library</Text>
           <View style={styles.headerRight}>
-            <Pressable onPress={openNew} hitSlop={12} style={styles.addBtn}>
-              <Text style={styles.addBtnText}>+ New</Text>
-            </Pressable>
-            <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-              <Text style={styles.closeText}>Done</Text>
-            </Pressable>
+            <Button mode="contained-tonal" compact onPress={openNew}>+ New</Button>
+            <Button mode="text" onPress={onClose}>Done</Button>
           </View>
         </View>
 
         <View style={styles.searchRow}>
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Search prompts..."
-            placeholderTextColor="#555"
+            placeholderTextColor={theme.colors.onSurfaceVariant}
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -155,10 +151,10 @@ export function PromptLibraryScreen({
         {filtered.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>📝</Text>
-            <Text style={styles.emptyText}>
+            <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>
               {prompts.length === 0 ? 'No saved prompts yet' : 'No matching prompts'}
             </Text>
-            <Text style={styles.emptySubtext}>
+            <Text style={[styles.emptySubtext, { color: theme.colors.onSurfaceVariant }]}>
               {prompts.length === 0
                 ? 'Tap "+ New" to create your first prompt template.'
                 : 'Try a different search term.'}
@@ -170,34 +166,30 @@ export function PromptLibraryScreen({
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => (
-              <View style={styles.card}>
+              <View style={[styles.card, { backgroundColor: theme.colors.surfaceVariant }]}>
                 <Pressable style={styles.cardBody} onPress={() => handleUse(item)}>
-                  <Text style={styles.promptTitle}>{item.title}</Text>
-                  <Text style={styles.promptBody} numberOfLines={2}>{item.body}</Text>
+                  <Text style={[styles.promptTitle, { color: theme.colors.onSurface }]}>{item.title}</Text>
+                  <Text style={[styles.promptBody, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>{item.body}</Text>
                   {item.tags.length > 0 && (
                     <View style={styles.tagsRow}>
                       {item.tags.map(tag => (
-                        <View key={tag} style={styles.tag}>
-                          <Text style={styles.tagText}>{tag}</Text>
+                        <View key={tag} style={[styles.tag, { backgroundColor: theme.colors.surface }]}>
+                          <Text style={[styles.tagText, { color: theme.colors.primary }]}>{tag}</Text>
                         </View>
                       ))}
                     </View>
                   )}
                 </Pressable>
                 <View style={styles.cardActions}>
-                  <Pressable
+                  <Button
+                    mode="contained-tonal"
+                    compact
                     onPress={() => handleUse(item)}
-                    hitSlop={8}
-                    style={({ pressed }) => [styles.useBtn, pressed && styles.useBtnPressed]}
                   >
-                    <Text style={styles.useBtnText}>Use</Text>
-                  </Pressable>
-                  <Pressable onPress={() => openEdit(item)} hitSlop={8} style={styles.editBtn}>
-                    <Text style={styles.editBtnText}>Edit</Text>
-                  </Pressable>
-                  <Pressable onPress={() => handleDelete(item)} hitSlop={8} style={styles.deleteBtn}>
-                    <Text style={styles.deleteBtnText}>×</Text>
-                  </Pressable>
+                    Use
+                  </Button>
+                  <Button mode="text" compact onPress={() => openEdit(item)}>Edit</Button>
+                  <IconButton icon="delete" size={18} iconColor={theme.colors.error} onPress={() => handleDelete(item)} />
                 </View>
               </View>
             )}
@@ -210,64 +202,48 @@ export function PromptLibraryScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f1a' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: '#1a1a2e',
+    borderBottomWidth: 1,
   },
-  headerTitle: { color: '#f0f0f0', fontSize: 18, fontWeight: '700' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  addBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#4f46e5', borderRadius: 6 },
-  addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  closeBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  closeText: { color: '#4ade80', fontSize: 15, fontWeight: '600' },
+  headerTitle: { fontSize: 18, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   searchRow: { paddingHorizontal: 16, paddingVertical: 10 },
   searchInput: {
-    backgroundColor: '#1e1e2e', borderRadius: 8, borderWidth: 1, borderColor: '#2a2a3e',
-    padding: 10, color: '#f0f0f0', fontSize: 14,
+    borderRadius: 8, borderWidth: 1,
+    padding: 10, fontSize: 14,
   },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   card: {
     flexDirection: 'row', alignItems: 'flex-start',
-    backgroundColor: '#1e1e2e', borderRadius: 10, padding: 16, gap: 12,
+    borderRadius: 10, padding: 16, gap: 12,
   },
   cardBody: { flex: 1, gap: 6 },
-  promptTitle: { color: '#f0f0f0', fontSize: 15, fontWeight: '700' },
-  promptBody: { color: '#9ca3af', fontSize: 13, lineHeight: 18 },
+  promptTitle: { fontSize: 15, fontWeight: '700' },
+  promptBody: { fontSize: 13, lineHeight: 18 },
   tagsRow: { flexDirection: 'row', gap: 6, marginTop: 4 },
-  tag: { backgroundColor: '#2a2a3e', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2 },
-  tagText: { color: '#818cf8', fontSize: 11, fontWeight: '600' },
-  cardActions: { gap: 8, alignItems: 'center' },
-  useBtn: { backgroundColor: '#4f46e5', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 6 },
-  useBtnPressed: { opacity: 0.7 },
-  useBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  editBtn: { paddingHorizontal: 8, paddingVertical: 4 },
-  editBtnText: { color: '#818cf8', fontSize: 12, fontWeight: '600' },
-  deleteBtn: { paddingHorizontal: 8, paddingVertical: 4 },
-  deleteBtnText: { color: '#f87171', fontSize: 16, fontWeight: '700' },
+  tag: { borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2 },
+  tagText: { fontSize: 11, fontWeight: '600' },
+  cardActions: { gap: 4, alignItems: 'center' },
   separator: { height: 8 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 12 },
   emptyIcon: { fontSize: 48, marginBottom: 8 },
-  emptyText: { color: '#9ca3af', fontSize: 15, fontWeight: '600', textAlign: 'center' },
-  emptySubtext: { color: '#555', fontSize: 13, lineHeight: 18, textAlign: 'center' },
+  emptyText: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
+  emptySubtext: { fontSize: 13, lineHeight: 18, textAlign: 'center' },
   editorOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'center', paddingHorizontal: 20,
   },
   editorCard: {
-    backgroundColor: '#1e1e2e', borderRadius: 12, padding: 20, gap: 12,
+    borderRadius: 12, padding: 20, gap: 12,
   },
-  editorTitle: { color: '#f0f0f0', fontSize: 16, fontWeight: '700' },
+  editorTitle: { fontSize: 16, fontWeight: '700' },
   editorInput: {
-    backgroundColor: '#0f0f1a', borderRadius: 8, borderWidth: 1, borderColor: '#2a2a3e',
-    padding: 12, color: '#f0f0f0', fontSize: 14,
+    borderRadius: 8, borderWidth: 1,
+    padding: 12, fontSize: 14,
   },
   editorBody: { minHeight: 120, textAlignVertical: 'top' },
-  editorActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 4 },
-  editorCancel: { paddingHorizontal: 16, paddingVertical: 10 },
-  editorCancelText: { color: '#9ca3af', fontSize: 14, fontWeight: '600' },
-  editorSave: { backgroundColor: '#4f46e5', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  editorSaveDisabled: { opacity: 0.35 },
-  editorSaveText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  editorActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 4 },
 });

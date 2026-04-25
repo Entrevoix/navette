@@ -3,7 +3,9 @@
 
 import * as Clipboard from 'expo-clipboard';
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { IconButton, useTheme } from 'react-native-paper';
+import { useSnackbar } from '../SnackbarContext';
 import { CodeBlock } from './CodeBlock';
 
 interface MessageBubbleProps {
@@ -41,16 +43,19 @@ export function splitTextAndCode(raw: string): Segment[] {
 }
 
 export function MessageBubble({ text, role }: MessageBubbleProps) {
+  const theme = useTheme();
+  const { showSnackbar } = useSnackbar();
   const handleCopy = async () => {
     try {
       await Clipboard.setStringAsync(text);
+      showSnackbar('Copied');
     } catch { /* clipboard unavailable */ }
   };
 
   if (role === 'user') {
     return (
-      <View style={styles.userBubble}>
-        <Text selectable style={styles.userText}>{text}</Text>
+      <View style={[styles.userBubble, { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary }]}>
+        <Text selectable style={[styles.userText, { color: theme.colors.onPrimaryContainer }]}>{text}</Text>
       </View>
     );
   }
@@ -59,15 +64,13 @@ export function MessageBubble({ text, role }: MessageBubbleProps) {
 
   return (
     <View style={styles.assistantBubble}>
-      <Pressable onPress={handleCopy} hitSlop={8} style={styles.copyBtn}>
-        <Text style={styles.copyIcon}>{'⎘'}</Text>
-      </Pressable>
+      <IconButton icon="content-copy" size={14} onPress={handleCopy} style={styles.copyBtn} />
       <View style={styles.body}>
         {segments.map((seg, i) =>
           seg.type === 'code' ? (
             <CodeBlock key={i} code={seg.content} language={seg.language} />
           ) : (
-            <Text key={i} selectable style={styles.assistantText}>{seg.content}</Text>
+            <Text key={i} selectable style={[styles.assistantText, { color: theme.colors.onSurface }]}>{seg.content}</Text>
           )
         )}
       </View>
@@ -76,36 +79,21 @@ export function MessageBubble({ text, role }: MessageBubbleProps) {
 }
 
 const styles = StyleSheet.create({
-  assistantBubble: {
-    position: 'relative',
-  },
+  assistantBubble: { position: 'relative' },
   copyBtn: {
     position: 'absolute',
-    top: 0,
-    right: 0,
+    top: -4,
+    right: -4,
     zIndex: 1,
-    padding: 4,
-    borderRadius: 4,
-    backgroundColor: 'rgba(30,30,30,0.6)',
   },
-  copyIcon: { color: '#6b7280', fontSize: 14 },
-  body: {
-    gap: 8,
-    paddingRight: 28,
-  },
-  assistantText: {
-    color: '#d4d4d8',
-    fontSize: 14,
-    lineHeight: 22,
-  },
+  body: { gap: 8, paddingRight: 28 },
+  assistantText: { fontSize: 14, lineHeight: 22 },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#0f172a',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1e3a5f',
     padding: 12,
     maxWidth: '88%',
   },
-  userText: { color: '#93c5fd', fontSize: 14, lineHeight: 20 },
+  userText: { fontSize: 14, lineHeight: 20 },
 });

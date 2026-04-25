@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 
 interface QuickResponseButtonsProps {
   text: string;
@@ -48,6 +49,7 @@ function detectButtons(text: string): string[] | null {
 }
 
 export function QuickResponseButtons({ text, onSendInput }: QuickResponseButtonsProps) {
+  const theme = useTheme();
   const buttons = detectButtons(text);
   if (!buttons) return null;
 
@@ -56,10 +58,10 @@ export function QuickResponseButtons({ text, onSendInput }: QuickResponseButtons
       {buttons.map((label) => (
         <Pressable
           key={label}
-          style={styles.pill}
+          style={[styles.pill, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}
           onPress={() => onSendInput(label)}
         >
-          <Text style={styles.pillText}>{label}</Text>
+          <Text style={[styles.pillText, { color: theme.colors.primary }]}>{label}</Text>
         </Pressable>
       ))}
     </View>
@@ -81,11 +83,8 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#2d5a9e',
-    backgroundColor: '#0d1a2a',
   },
   pillText: {
-    color: '#93c5fd',
     fontSize: 13,
     fontWeight: '600',
   },

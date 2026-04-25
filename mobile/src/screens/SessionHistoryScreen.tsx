@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Button, useTheme } from 'react-native-paper';
 import { EventLog } from '../components/EventLog';
 import { EventFrame, PastSessionInfo, SearchResult } from '../types';
 
@@ -42,6 +43,7 @@ export function SessionHistoryScreen({
   onGetSessionHistory,
   onSearchSessions,
 }: SessionHistoryScreenProps) {
+  const theme = useTheme();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,35 +88,33 @@ export function SessionHistoryScreen({
       onRequestClose={onClose}
       onShow={handleOpen}
     >
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Session History</Text>
-          <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-            <Text style={styles.closeText}>Done</Text>
-          </Pressable>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>Session History</Text>
+          <Button mode="text" onPress={onClose}>Done</Button>
         </View>
 
         <View style={styles.body}>
           {/* Session list panel */}
-          <View style={styles.listPanel}>
+          <View style={[styles.listPanel, { borderBottomColor: theme.colors.outlineVariant }]}>
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
               value={searchQuery}
               onChangeText={handleSearchChange}
               placeholder="Search sessions..."
-              placeholderTextColor="#555"
+              placeholderTextColor={theme.colors.onSurfaceVariant}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
             />
-            <Text style={styles.panelLabel}>
+            <Text style={[styles.panelLabel, { color: theme.colors.onSurfaceVariant, borderBottomColor: theme.colors.outlineVariant }]}>
               {isSearching
                 ? `Results (${displaySessions.length})`
                 : `Past Sessions (${pastSessions.length})`}
             </Text>
             {displaySessions.length === 0 ? (
               <View style={styles.emptyPanel}>
-                <Text style={styles.emptyPanelText}>
+                <Text style={[styles.emptyPanelText, { color: theme.colors.onSurfaceVariant }]}>
                   {isSearching ? 'No matching sessions' : 'No past sessions found'}
                 </Text>
               </View>
@@ -126,14 +126,14 @@ export function SessionHistoryScreen({
                   const isSelected = item.session_id === selectedId;
                   return (
                     <Pressable
-                      style={[styles.sessionRow, isSelected && styles.sessionRowActive]}
+                      style={[styles.sessionRow, { borderBottomColor: theme.colors.outlineVariant }, isSelected && { backgroundColor: theme.colors.primaryContainer, borderLeftColor: theme.colors.primary }]}
                       onPress={() => handleSelectSession(item.session_id)}
                     >
-                      <Text style={[styles.sessionId, isSelected && styles.sessionIdActive]}>
+                      <Text style={[styles.sessionId, { color: theme.colors.primary }, isSelected && { color: theme.colors.onPrimaryContainer }]}>
                         {item.session_id.slice(0, 12)}
                       </Text>
-                      <Text style={styles.sessionDate}>{formatDate(item.started_at)}</Text>
-                      <Text style={styles.sessionCount}>{item.event_count} events</Text>
+                      <Text style={[styles.sessionDate, { color: theme.colors.onSurfaceVariant }]}>{formatDate(item.started_at)}</Text>
+                      <Text style={[styles.sessionCount, { color: theme.colors.onSurfaceVariant }]}>{item.event_count} events</Text>
                     </Pressable>
                   );
                 }}
@@ -145,7 +145,7 @@ export function SessionHistoryScreen({
           <View style={styles.detailPanel}>
             {selectedId ? (
               <>
-                <Text style={styles.panelLabel}>
+                <Text style={[styles.panelLabel, { color: theme.colors.onSurfaceVariant, borderBottomColor: theme.colors.outlineVariant }]}>
                   {selectedId.slice(0, 12)} · {formatDate(
                     pastSessions.find(s => s.session_id === selectedId)?.started_at ?? 0
                   )}
@@ -154,7 +154,7 @@ export function SessionHistoryScreen({
               </>
             ) : (
               <View style={styles.emptyPanel}>
-                <Text style={styles.emptyPanelText}>Select a session to view events</Text>
+                <Text style={[styles.emptyPanelText, { color: theme.colors.onSurfaceVariant }]}>Select a session to view events</Text>
               </View>
             )}
           </View>
@@ -167,7 +167,6 @@ export function SessionHistoryScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
   },
   header: {
     flexDirection: 'row',
@@ -177,47 +176,31 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
   },
   title: {
-    color: '#f0f0f0',
     fontSize: 18,
     fontWeight: '700',
-  },
-  closeBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  closeText: {
-    color: '#4ade80',
-    fontSize: 15,
-    fontWeight: '600',
   },
   body: {
     flex: 1,
     flexDirection: 'column',
   },
   searchInput: {
-    backgroundColor: '#0d0d0d',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
     padding: 10,
     marginHorizontal: 16,
     marginTop: 10,
-    color: '#f0f0f0',
     fontSize: 13,
   },
   listPanel: {
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
     maxHeight: '40%',
   },
   detailPanel: {
     flex: 1,
   },
   panelLabel: {
-    color: '#888',
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -225,7 +208,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#111',
   },
   emptyPanel: {
     flex: 1,
@@ -234,7 +216,6 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   emptyPanelText: {
-    color: '#555',
     fontSize: 13,
   },
   sessionRow: {
@@ -243,29 +224,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#111',
+    borderLeftWidth: 2,
+    borderLeftColor: 'transparent',
     gap: 8,
   },
-  sessionRowActive: {
-    backgroundColor: '#0d1a0d',
-    borderLeftWidth: 2,
-    borderLeftColor: '#4ade80',
-  },
   sessionId: {
-    color: '#93c5fd',
     fontSize: 12,
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     flex: 1,
   },
-  sessionIdActive: {
-    color: '#4ade80',
-  },
   sessionDate: {
-    color: '#555',
     fontSize: 11,
   },
   sessionCount: {
-    color: '#444',
     fontSize: 11,
     minWidth: 60,
     textAlign: 'right',

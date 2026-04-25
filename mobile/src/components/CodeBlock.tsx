@@ -3,7 +3,10 @@
 
 import * as Clipboard from 'expo-clipboard';
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { Button, useTheme } from 'react-native-paper';
+import { useSnackbar } from '../SnackbarContext';
+import { monoFamily } from '../theme';
 
 interface CodeBlockProps {
   code: string;
@@ -55,25 +58,26 @@ function highlightLine(line: string): React.ReactNode[] {
 }
 
 export function CodeBlock({ code, language }: CodeBlockProps) {
+  const theme = useTheme();
+  const { showSnackbar } = useSnackbar();
   const handleCopy = async () => {
     try {
       await Clipboard.setStringAsync(code);
+      showSnackbar('Copied');
     } catch { /* clipboard unavailable */ }
   };
 
   const lines = code.split('\n');
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        {language ? <Text style={styles.lang}>{language}</Text> : <View />}
-        <Pressable onPress={handleCopy} hitSlop={8} style={styles.copyBtn}>
-          <Text style={styles.copyText}>Copy</Text>
-        </Pressable>
+    <View style={[styles.container, { borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surfaceVariant }]}>
+      <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+        {language ? <Text style={[styles.lang, { color: theme.colors.onSurfaceVariant }]}>{language}</Text> : <View />}
+        <Button mode="text" compact onPress={handleCopy} labelStyle={{ fontSize: 11 }}>Copy</Button>
       </View>
       <View style={styles.codeArea}>
         {lines.map((line, i) => (
-          <Text key={i} selectable style={styles.codeLine}>
+          <Text key={i} selectable style={[styles.codeLine, { color: theme.colors.onSurfaceVariant }]}>
             {highlightLine(line)}
           </Text>
         ))}
@@ -86,8 +90,6 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#1e1e1e',
-    backgroundColor: '#0d0d0d',
     overflow: 'hidden',
     marginVertical: 4,
   },
@@ -98,23 +100,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
   },
-  lang: { color: '#52525b', fontSize: 11, fontWeight: '600' },
-  copyBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  copyText: { color: '#9ca3af', fontSize: 11, fontWeight: '600' },
+  lang: { fontSize: 11, fontWeight: '600' },
   codeArea: { padding: 10 },
   codeLine: {
-    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
+    fontFamily: monoFamily,
     fontSize: 12,
     lineHeight: 18,
-    color: '#d4d4d8',
   },
-  plain: { color: '#d4d4d8' },
+  plain: {},
 });

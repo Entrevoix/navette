@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 
 interface ContextMeterProps {
   inputTokens: number;
@@ -17,16 +18,17 @@ function formatK(n: number): string {
 }
 
 export function ContextMeter({ inputTokens, outputTokens, maxTokens }: ContextMeterProps) {
+  const theme = useTheme();
   const totalUsed = inputTokens + outputTokens;
   const pct = maxTokens > 0 ? Math.min((totalUsed / maxTokens) * 100, 100) : 0;
 
-  let barColor = '#4ade80';
-  if (pct >= 80) barColor = '#f87171';
-  else if (pct >= 60) barColor = '#fbbf24';
+  let barColor = theme.colors.primary;
+  if (pct >= 80) barColor = theme.colors.error;
+  else if (pct >= 60) barColor = theme.colors.tertiary;
 
   return (
     <View style={styles.container}>
-      <View style={styles.barBg}>
+      <View style={[styles.barBg, { backgroundColor: theme.colors.surfaceVariant }]}>
         <View style={[styles.barFill, { width: `${pct}%`, backgroundColor: barColor }]} />
       </View>
       <Text style={[styles.label, { color: barColor }]}>
@@ -46,7 +48,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#1a1a1a',
     overflow: 'hidden',
   },
   barFill: {

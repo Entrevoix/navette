@@ -47,35 +47,33 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 }
 
+// ErrorBoundary is a class component and cannot use hooks.
+// Colors here are intentionally hard-coded as theme-neutral fallbacks
+// since this component renders outside of normal React context in error conditions.
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
   },
   title: {
-    color: '#ff6b6b',
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 12,
   },
   message: {
-    color: '#888888',
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 24,
     fontFamily: 'Menlo',
   },
   button: {
-    backgroundColor: '#4a9eff',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   buttonText: {
-    color: '#ffffff',
     fontWeight: '600',
   },
 });

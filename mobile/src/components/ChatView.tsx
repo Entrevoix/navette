@@ -6,6 +6,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,12 +17,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Button, IconButton, useTheme } from 'react-native-paper';
 import { ApprovalCard } from './ApprovalCard';
 import { BatchApprovalBar } from './BatchApprovalBar';
 import { FileChip } from './FileChip';
 import { MessageBubble } from './MessageBubble';
 import { QuickResponseButtons } from './QuickResponseButtons';
 import { ToolCallRow } from './EventLog';
+import { useSnackbar } from '../SnackbarContext';
 import { exportTranscriptMarkdown } from '../utils/transcript';
 import {
   AssistantEvent,
@@ -80,6 +84,8 @@ function PendingToolCallRow({
 }
 
 export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, viewStartSeq, activeSessionId, sessionRunning, onSendInput, onRefresh }: ChatViewProps) {
+  const theme = useTheme();
+  const { showSnackbar } = useSnackbar();
   const scrollRef = useRef<ScrollView>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [inputText, setInputText] = useState('');
@@ -107,15 +113,15 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
       const s = ev as { type: string; prompt?: string };
       items.push(
         <View key={`ss-${frame.seq}`} style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerLabel}>session</Text>
-          <View style={styles.dividerLine} />
+          <View style={[styles.dividerLine, { backgroundColor: theme.colors.outlineVariant }]} />
+          <Text style={[styles.dividerLabel, { color: theme.colors.onSurfaceVariant }]}>session</Text>
+          <View style={[styles.dividerLine, { backgroundColor: theme.colors.outlineVariant }]} />
         </View>
       );
       if (s.prompt) {
         items.push(
-          <View key={`up-${frame.seq}`} style={styles.userBubble}>
-            <Text selectable style={styles.userText}>{s.prompt}</Text>
+          <View key={`up-${frame.seq}`} style={[styles.userBubble, { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary }]}>
+            <Text selectable style={[styles.userText, { color: theme.colors.onPrimaryContainer }]}>{s.prompt}</Text>
           </View>
         );
       }
@@ -126,11 +132,11 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
       const e = ev as { type: string; ok: boolean };
       items.push(
         <View key={`se-${frame.seq}`} style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text style={[styles.dividerLabel, e.ok ? styles.doneLabel : styles.failLabel]}>
+          <View style={[styles.dividerLine, { backgroundColor: theme.colors.outlineVariant }]} />
+          <Text style={[styles.dividerLabel, { color: e.ok ? theme.colors.primary : theme.colors.error }]}>
             {e.ok ? 'done' : 'failed'}
           </Text>
-          <View style={styles.dividerLine} />
+          <View style={[styles.dividerLine, { backgroundColor: theme.colors.outlineVariant }]} />
         </View>
       );
       continue;
@@ -203,6 +209,7 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
     try {
       const md = exportTranscriptMarkdown(visibleEvents, activeSessionId ?? 'unknown');
       await Clipboard.setStringAsync(md);
+      showSnackbar('Copied to clipboard');
     } catch { /* clipboard unavailable */ }
   };
 
@@ -242,7 +249,7 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
   const inputBar = showInputBar ? (
     <View>
       {attachedFiles.length > 0 && (
-        <View style={styles.fileChipsRow}>
+        <View style={[styles.fileChipsRow, { borderTopColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surface }]}>
           {attachedFiles.map((f: AttachedFile, i: number) => (
             <FileChip
               key={`${f.name}-${i}`}
@@ -253,58 +260,56 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
           ))}
         </View>
       )}
-      <View style={styles.inputBar}>
-        <Pressable style={styles.attachBtn} onPress={handleAttach} hitSlop={8}>
-          <Text style={styles.attachBtnText}>+</Text>
-        </Pressable>
+      <View style={[styles.inputBar, { borderTopColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surface }]}>
+        <IconButton icon="plus" mode="outlined" onPress={handleAttach} size={20} />
         <TextInput
-          style={[styles.inputField, hasPendingApprovals && styles.inputFieldDisabled]}
+          style={[styles.inputField, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline, color: theme.colors.onSurface }, hasPendingApprovals && styles.inputFieldDisabled]}
           value={inputText}
           onChangeText={setInputText}
           placeholder="Type a message…"
-          placeholderTextColor="#52525b"
+          placeholderTextColor={theme.colors.onSurfaceVariant}
           autoCorrect={false}
           editable={!hasPendingApprovals}
           multiline
           blurOnSubmit={false}
         />
-        <Pressable
-          style={[styles.sendBtn, (!inputText.trim() && attachedFiles.length === 0 || hasPendingApprovals) && styles.sendBtnDisabled]}
+        <IconButton
+          icon="send"
+          mode="contained"
           onPress={handleSendInput}
           disabled={(!inputText.trim() && attachedFiles.length === 0) || hasPendingApprovals}
-        >
-          <Text style={styles.sendBtnText}>Send</Text>
-        </Pressable>
+          size={20}
+        />
       </View>
     </View>
   ) : null;
 
   if (items.length === 0 && !hasHistory) {
     return (
-      <View style={styles.emptyWrapper}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.emptyWrapper} keyboardVerticalOffset={64}>
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>No conversation yet</Text>
+          <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>No conversation yet</Text>
         </View>
         {inputBar}
-      </View>
+      </KeyboardAvoidingView>
     );
   }
 
   if (items.length === 0 && hasHistory) {
     return (
-      <View style={styles.emptyWrapper}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.emptyWrapper} keyboardVerticalOffset={64}>
         <View style={styles.empty}>
           <Pressable onPress={() => setShowHistory(true)} style={styles.historyToggle}>
-            <Text style={styles.historyToggleText}>▼ Show history</Text>
+            <Text style={[styles.historyToggleText, { color: theme.colors.onSurfaceVariant }]}>▼ Show history</Text>
           </Pressable>
         </View>
         {inputBar}
-      </View>
+      </KeyboardAvoidingView>
     );
   }
 
   return (
-    <View style={styles.chatWrapper}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.chatWrapper} keyboardVerticalOffset={64}>
       {onBatchDecide && (
         <BatchApprovalBar
           pendingApprovals={pendingApprovals}
@@ -316,11 +321,11 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={onRefresh ? <RefreshControl refreshing={false} onRefresh={onRefresh} tintColor="#4ade80" /> : undefined}
+        refreshControl={onRefresh ? <RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={theme.colors.primary} /> : undefined}
       >
         {hasHistory && (
-          <Pressable onPress={() => setShowHistory(x => !x)} style={styles.historyToggle}>
-            <Text style={styles.historyToggleText}>
+          <Pressable onPress={() => setShowHistory((x: boolean) => !x)} style={styles.historyToggle}>
+            <Text style={[styles.historyToggleText, { color: theme.colors.onSurfaceVariant }]}>
               {showHistory ? '▲ Hide history' : '▼ Show history'}
             </Text>
           </Pressable>
@@ -328,22 +333,16 @@ export function ChatView({ events, pendingApprovals, onDecide, onBatchDecide, vi
         {items}
       </ScrollView>
       {visibleEvents.length > 0 && (
-        <View style={styles.sessionActions}>
-          <Pressable onPress={handleCopyAll} style={styles.sessionBtn}>
-            <Text style={styles.sessionBtnText}>Copy All</Text>
-          </Pressable>
-          <Pressable onPress={handleShareAll} style={styles.sessionBtn}>
-            <Text style={styles.sessionBtnText}>Share</Text>
-          </Pressable>
+        <View style={[styles.sessionActions, { borderTopColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surface }]}>
+          <Button mode="outlined" compact onPress={handleCopyAll}>Copy All</Button>
+          <Button mode="outlined" compact onPress={handleShareAll}>Share</Button>
           {sessionRunning && onSendInput && (
-            <Pressable onPress={handleCompact} style={[styles.sessionBtn, styles.compactBtn]}>
-              <Text style={styles.compactBtnText}>Compact</Text>
-            </Pressable>
+            <Button mode="text" compact onPress={handleCompact}>Compact</Button>
           )}
         </View>
       )}
       {inputBar}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -353,7 +352,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24, gap: 10 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  emptyText: { color: '#71717a', fontSize: 14 },
+  emptyText: { fontSize: 14 },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -361,86 +360,49 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: '#1e1e1e',
-    backgroundColor: '#0a0a0a',
   },
   inputField: {
     flex: 1,
-    backgroundColor: '#0d0d0d',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#f0f0f0',
     fontSize: 14,
     minHeight: 44,
     maxHeight: 120,
     textAlignVertical: 'top',
   },
-  inputFieldDisabled: {
-    opacity: 0.4,
-  },
-  sendBtn: {
-    backgroundColor: '#1e3a5f',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    minHeight: 44,
-    minWidth: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2d5a9e',
-  },
-  sendBtnDisabled: { opacity: 0.35 },
-  sendBtnText: { color: '#93c5fd', fontWeight: '700', fontSize: 13 },
+  inputFieldDisabled: { opacity: 0.4 },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginVertical: 4,
   },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#1e1e1e' },
+  dividerLine: { flex: 1, height: 1 },
   dividerLabel: {
-    color: '#6b7280',
     fontSize: 10,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
-  doneLabel: { color: '#4ade80' },
-  failLabel: { color: '#f87171' },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#0f172a',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1e3a5f',
     padding: 12,
     maxWidth: '88%',
   },
-  userText: { color: '#93c5fd', fontSize: 14, lineHeight: 20 },
+  userText: { fontSize: 14, lineHeight: 20 },
   sessionActions: {
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: '#1e1e1e',
-    backgroundColor: '#0a0a0a',
   },
-  sessionBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  sessionBtnText: { color: '#9ca3af', fontSize: 12, fontWeight: '600' },
-  compactBtn: { borderColor: '#1e3a5f' },
-  compactBtnText: { color: '#93c5fd', fontSize: 12, fontWeight: '600' },
   historyToggle: { alignItems: 'center', paddingVertical: 6 },
-  historyToggleText: { color: '#52525b', fontSize: 11 },
+  historyToggleText: { fontSize: 11 },
   fileChipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -448,18 +410,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#1e1e1e',
-    backgroundColor: '#0a0a0a',
   },
-  attachBtn: {
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#0d0d0d',
-  },
-  attachBtnText: { color: '#9ca3af', fontSize: 20, fontWeight: '300' },
 });

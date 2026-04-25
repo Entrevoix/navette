@@ -4,6 +4,7 @@
 import * as Haptics from 'expo-haptics';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { PendingApproval } from '../types';
 
 interface BatchApprovalBarProps {
@@ -12,6 +13,7 @@ interface BatchApprovalBarProps {
 }
 
 export function BatchApprovalBar({ pendingApprovals, onBatchDecide }: BatchApprovalBarProps) {
+  const theme = useTheme();
   const count = pendingApprovals.length;
   if (count < 2) return null;
 
@@ -26,14 +28,14 @@ export function BatchApprovalBar({ pendingApprovals, onBatchDecide }: BatchAppro
   };
 
   return (
-    <View style={styles.bar}>
-      <Text style={styles.count}>{count} pending approvals</Text>
+    <View style={[styles.bar, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
+      <Text style={[styles.count, { color: theme.colors.primary }]}>{count} pending approvals</Text>
       <View style={styles.actions}>
-        <Pressable style={styles.denyAllBtn} onPress={handleDenyAll}>
-          <Text style={styles.denyAllText}>Deny All</Text>
+        <Pressable style={[styles.denyAllBtn, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]} onPress={handleDenyAll}>
+          <Text style={[styles.denyAllText, { color: theme.colors.onSurfaceVariant }]}>Deny All</Text>
         </Pressable>
-        <Pressable style={styles.approveAllBtn} onPress={handleApproveAll}>
-          <Text style={styles.approveAllText}>Approve All ({count})</Text>
+        <Pressable style={[styles.approveAllBtn, { backgroundColor: theme.colors.primaryContainer }]} onPress={handleApproveAll}>
+          <Text style={[styles.approveAllText, { color: theme.colors.primary }]}>Approve All ({count})</Text>
         </Pressable>
       </View>
     </View>
@@ -47,12 +49,9 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1e3a5f',
-    backgroundColor: '#0d1a2a',
     gap: 10,
   },
   count: {
-    color: '#93c5fd',
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',
@@ -67,10 +66,8 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     borderRadius: 8,
     alignItems: 'center',
-    backgroundColor: '#14532d',
   },
   approveAllText: {
-    color: '#4ade80',
     fontWeight: '700',
     fontSize: 14,
   },
@@ -79,12 +76,9 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     borderRadius: 8,
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
     borderWidth: 1,
-    borderColor: '#3f3f3f',
   },
   denyAllText: {
-    color: '#888',
     fontWeight: '600',
     fontSize: 14,
   },

@@ -6,7 +6,6 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as SecureStore from 'expo-secure-store';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -18,6 +17,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Button, IconButton, useTheme } from 'react-native-paper';
 import { ConnectionStatus, ServerConfig } from '../types';
 
 interface ConnectScreenProps {
@@ -46,6 +46,7 @@ function genId() {
 }
 
 export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
+  const theme = useTheme();
   const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -297,159 +298,139 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <View style={styles.card}>
-          <Text style={styles.title}>navette</Text>
-          <Text style={styles.subtitle}>remote tool approval</Text>
+        <View style={[styles.card, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>navette</Text>
+          <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>remote tool approval</Text>
 
-          <Pressable style={styles.qrBtn} onPress={openQrScanner}>
-            <Text style={styles.qrBtnText}>Scan QR to Connect</Text>
-          </Pressable>
+          <Button mode="contained-tonal" icon="qrcode-scan" onPress={openQrScanner} style={styles.qrBtn}>
+            Scan QR to Connect
+          </Button>
           {qrError.length > 0 && (
-            <Text style={styles.qrError}>{qrError}</Text>
+            <Text style={[styles.qrError, { color: theme.colors.error }]}>{qrError}</Text>
           )}
 
           {status === 'error' && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorText}>Connection failed — check host, port, and token</Text>
+            <View style={[styles.errorBanner, { backgroundColor: theme.colors.errorContainer, borderColor: theme.colors.error }]}>
+              <Text style={{ color: theme.colors.onErrorContainer, fontSize: 13 }}>Connection failed — check host, port, and token</Text>
             </View>
           )}
 
           {savedConfigs.length > 0 && (
             <View style={styles.savedSection}>
-              <Text style={styles.savedLabel}>Saved</Text>
+              <Text style={[styles.savedLabel, { color: theme.colors.onSurfaceVariant }]}>Saved</Text>
               {savedConfigs.map(cfg => (
                 <Pressable
                   key={cfg.id}
-                  style={[styles.savedRow, selectedId === cfg.id && styles.savedRowSelected]}
+                  style={[styles.savedRow, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }, selectedId === cfg.id && { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryContainer }]}
                   onPress={() => handleSelect(cfg)}
                 >
                   <View style={styles.savedRowInfo}>
-                    <Text style={[styles.savedRowName, selectedId === cfg.id && styles.savedRowNameSelected]}>
+                    <Text style={[styles.savedRowName, { color: theme.colors.onSurface }, selectedId === cfg.id && { color: theme.colors.primary }]}>
                       {cfg.name}
                     </Text>
-                    <Text style={styles.savedRowHost}>{cfg.host}:{cfg.port}</Text>
+                    <Text style={[styles.savedRowHost, { color: theme.colors.onSurfaceVariant }]}>{cfg.host}:{cfg.port}</Text>
                   </View>
-                  <Pressable
-                    onPress={() => handleDelete(cfg.id)}
-                    hitSlop={12}
-                    style={styles.deleteBtn}
-                  >
-                    <Text style={styles.deleteText}>×</Text>
-                  </Pressable>
+                  <IconButton icon="close" size={18} onPress={() => handleDelete(cfg.id)} />
                 </Pressable>
               ))}
             </View>
           )}
 
-          <Text style={styles.label}>Name <Text style={styles.optional}>(for saved list)</Text></Text>
+          <Text style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Name <Text style={[styles.optional, { color: theme.colors.onSurfaceVariant }]}>(for saved list)</Text></Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
             value={name}
             onChangeText={setName}
             placeholder="e.g. Home WiFi or Tailscale"
-            placeholderTextColor="#555"
+            placeholderTextColor={theme.colors.onSurfaceVariant}
             autoCorrect={false}
           />
 
-          <Text style={styles.label}>Host</Text>
+          <Text style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Host</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
             value={host}
             onChangeText={setHost}
             placeholder="100.x.x.x or 192.168.x.x"
-            placeholderTextColor="#555"
+            placeholderTextColor={theme.colors.onSurfaceVariant}
             autoCapitalize="none"
             autoCorrect={false}
           />
 
           <View style={styles.tsRow}>
-            <Pressable onPress={openTailscale} style={styles.tsBtn}>
-              <Text style={styles.tsBtnText}>Open Tailscale ↗</Text>
-            </Pressable>
+            <Button mode="outlined" compact onPress={openTailscale} style={{ flex: 1 }}>
+              Open Tailscale
+            </Button>
             {tsApiKey.length > 0 && (
-              <Pressable onPress={browsePeers} style={styles.tsBrowseBtn} disabled={tsLoading}>
-                {tsLoading
-                  ? <ActivityIndicator size="small" color="#5b8dd9" />
-                  : <Text style={styles.tsBrowseBtnText}>Browse peers</Text>}
-              </Pressable>
+              <Button mode="outlined" compact onPress={browsePeers} loading={tsLoading} disabled={tsLoading}>
+                Browse peers
+              </Button>
             )}
           </View>
-          {tsError.length > 0 && <Text style={styles.tsError}>Tailscale error: {tsError}</Text>}
+          {tsError.length > 0 && <Text style={{ color: theme.colors.error, fontSize: 12, marginTop: 4 }}>Tailscale error: {tsError}</Text>}
 
-          <Text style={styles.label}>Port</Text>
+          <Text style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Port</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
             value={port}
             onChangeText={setPort}
             placeholder="7878"
-            placeholderTextColor="#555"
+            placeholderTextColor={theme.colors.onSurfaceVariant}
             keyboardType="number-pad"
           />
 
-          <Text style={styles.label}>Token</Text>
+          <Text style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Token</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
             value={token}
             onChangeText={setToken}
             placeholder="from ~/.config/navetted/config.toml (token field)"
-            placeholderTextColor="#555"
+            placeholderTextColor={theme.colors.onSurfaceVariant}
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry
           />
 
-          <Text style={styles.label}>Container <Text style={styles.optional}>(optional)</Text></Text>
+          <Text style={[styles.label, { color: theme.colors.onSurfaceVariant }]}>Container <Text style={[styles.optional, { color: theme.colors.onSurfaceVariant }]}>(optional)</Text></Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
             value={container}
             onChangeText={setContainer}
             placeholder="e.g. devbox — leave blank for host"
-            placeholderTextColor="#555"
+            placeholderTextColor={theme.colors.onSurfaceVariant}
             autoCapitalize="none"
             autoCorrect={false}
           />
 
           <View style={styles.actions}>
-            <Pressable
-              style={[styles.saveBtn, !canConnect && styles.saveBtnDisabled]}
-              onPress={handleSave}
-              disabled={!canConnect}
-            >
-              <Text style={styles.saveBtnText}>{isDirty ? 'Update' : 'Save'}</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.connectBtn, !canConnect && styles.connectBtnDisabled]}
-              onPress={handleConnect}
-              disabled={!canConnect}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#000" />
-              ) : (
-                <Text style={styles.connectBtnText}>Connect</Text>
-              )}
-            </Pressable>
+            <Button mode="outlined" onPress={handleSave} disabled={!canConnect} style={{ flex: 1 }}>
+              {isDirty ? 'Update' : 'Save'}
+            </Button>
+            <Button mode="contained" onPress={handleConnect} disabled={!canConnect} loading={isLoading} style={{ flex: 2 }}>
+              Connect
+            </Button>
           </View>
         </View>
       </ScrollView>
 
       <Modal visible={tsPeerVisible} transparent animationType="fade" onRequestClose={() => setTsPeerVisible(false)}>
         <Pressable style={styles.tsOverlay} onPress={() => setTsPeerVisible(false)}>
-          <View style={styles.tsPeerModal}>
-            <Text style={styles.tsPeerTitle}>Tailscale Peers</Text>
+          <View style={[styles.tsPeerModal, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
+            <Text style={[styles.tsPeerTitle, { color: theme.colors.onSurfaceVariant, borderBottomColor: theme.colors.outlineVariant }]}>Tailscale Peers</Text>
             {tsPeers.length === 0
-              ? <Text style={styles.tsPeerEmpty}>No devices found</Text>
+              ? <Text style={[styles.tsPeerEmpty, { color: theme.colors.onSurfaceVariant }]}>No devices found</Text>
               : tsPeers.map(p => (
                 <Pressable
                   key={p.ip}
-                  style={styles.tsPeerRow}
-                  onPress={() => { setHost(p.ip); setName(n => n || p.name); setTsPeerVisible(false); }}
+                  style={[styles.tsPeerRow, { borderBottomColor: theme.colors.outlineVariant }]}
+                  onPress={() => { setHost(p.ip); setName((n: string) => n || p.name); setTsPeerVisible(false); }}
                 >
-                  <Text style={styles.tsPeerName}>{p.name}</Text>
-                  <Text style={styles.tsPeerIp}>{p.ip}</Text>
+                  <Text style={[styles.tsPeerName, { color: theme.colors.onSurface }]}>{p.name}</Text>
+                  <Text style={[styles.tsPeerIp, { color: theme.colors.primary }]}>{p.ip}</Text>
                 </Pressable>
               ))
             }
@@ -466,10 +447,10 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
             onBarcodeScanned={handleBarcodeScan}
           />
           <View style={styles.qrOverlay}>
-            <Text style={styles.qrHint}>Point camera at the QR code from `navetted --pair`</Text>
-            <Pressable style={styles.qrCloseBtn} onPress={() => setQrVisible(false)}>
-              <Text style={styles.qrCloseBtnText}>Cancel</Text>
-            </Pressable>
+            <Text style={[styles.qrHint, { color: theme.colors.onSurface }]}>Point camera at the QR code from `navetted --pair`</Text>
+            <Button mode="outlined" onPress={() => setQrVisible(false)} textColor={theme.colors.onSurface} style={{ borderColor: theme.colors.outlineVariant }}>
+              Cancel
+            </Button>
           </View>
         </View>
       </Modal>
@@ -478,104 +459,69 @@ export function ConnectScreen({ status, onConnect }: ConnectScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1 },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   card: {
-    backgroundColor: '#141414',
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
+    maxWidth: 600,
+    alignSelf: 'center',
+    width: '100%',
   },
-  title: { fontSize: 28, fontWeight: '700', color: '#f0f0f0', letterSpacing: -0.5, marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#666', marginBottom: 20 },
+  title: { fontSize: 28, fontWeight: '700', letterSpacing: -0.5, marginBottom: 4 },
+  subtitle: { fontSize: 14, marginBottom: 20 },
   errorBanner: {
-    backgroundColor: '#2d1010', borderRadius: 8, padding: 12,
-    marginBottom: 16, borderWidth: 1, borderColor: '#6b1f1f',
+    borderRadius: 8, padding: 12,
+    marginBottom: 16, borderWidth: 1,
   },
-  errorText: { color: '#f87171', fontSize: 13 },
   savedSection: { marginBottom: 16 },
   savedLabel: {
-    fontSize: 11, fontWeight: '600', color: '#555',
+    fontSize: 11, fontWeight: '600',
     textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8,
   },
   savedRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#0d0d0d', borderRadius: 8, borderWidth: 1,
-    borderColor: '#2a2a2a', paddingHorizontal: 12, paddingVertical: 10, marginBottom: 6,
+    borderRadius: 8, borderWidth: 1,
+    paddingHorizontal: 12, paddingVertical: 4, marginBottom: 6,
   },
-  savedRowSelected: { borderColor: '#4ade80', backgroundColor: '#0d1a10' },
   savedRowInfo: { flex: 1 },
-  savedRowName: { color: '#ccc', fontSize: 14, fontWeight: '500' },
-  savedRowNameSelected: { color: '#4ade80' },
-  savedRowHost: { color: '#555', fontSize: 12, marginTop: 2 },
-  deleteBtn: { paddingLeft: 12 },
-  deleteText: { color: '#555', fontSize: 20, lineHeight: 22 },
+  savedRowName: { fontSize: 14, fontWeight: '500' },
+  savedRowHost: { fontSize: 12, marginTop: 2 },
   label: {
-    fontSize: 12, fontWeight: '600', color: '#888',
+    fontSize: 12, fontWeight: '600',
     textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 16,
   },
-  optional: { fontSize: 11, fontWeight: '400', color: '#555', textTransform: 'none', letterSpacing: 0 },
+  optional: { fontSize: 11, fontWeight: '400', textTransform: 'none', letterSpacing: 0 },
   input: {
-    backgroundColor: '#0a0a0a', borderRadius: 8, borderWidth: 1,
-    borderColor: '#2a2a2a', padding: 12, color: '#f0f0f0', fontSize: 15,
+    borderRadius: 8, borderWidth: 1,
+    padding: 12, fontSize: 15,
   },
   actions: { flexDirection: 'row', gap: 10, marginTop: 28 },
-  saveBtn: {
-    flex: 1, backgroundColor: '#1a1a1a', borderRadius: 10, padding: 14,
-    alignItems: 'center', borderWidth: 1, borderColor: '#2a2a2a',
-  },
-  saveBtnDisabled: { opacity: 0.4 },
-  saveBtnText: { color: '#888', fontWeight: '600', fontSize: 15 },
-  connectBtn: {
-    flex: 2, backgroundColor: '#e2e8f0', borderRadius: 10, padding: 14, alignItems: 'center',
-  },
-  connectBtnDisabled: { opacity: 0.4 },
-  connectBtnText: { color: '#0a0a0a', fontWeight: '700', fontSize: 16 },
-
   tsRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  tsBtn: {
-    flex: 1, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 7,
-    borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0d0d0d',
-    alignItems: 'center',
-  },
-  tsBtnText: { color: '#5b8dd9', fontSize: 13, fontWeight: '600' },
-  tsBrowseBtn: {
-    paddingVertical: 8, paddingHorizontal: 14, borderRadius: 7,
-    borderWidth: 1, borderColor: '#1e3a5f', backgroundColor: '#0d1520',
-    alignItems: 'center', justifyContent: 'center', minWidth: 100,
-  },
-  tsBrowseBtnText: { color: '#93c5fd', fontSize: 13, fontWeight: '600' },
-  tsError: { color: '#f87171', fontSize: 12, marginTop: 4 },
-
   tsOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'center', alignItems: 'center', padding: 24,
   },
   tsPeerModal: {
-    backgroundColor: '#141414', borderRadius: 14, width: '100%',
-    borderWidth: 1, borderColor: '#2a2a2a', overflow: 'hidden',
+    borderRadius: 14, width: '100%',
+    borderWidth: 1, overflow: 'hidden',
   },
   tsPeerTitle: {
-    color: '#888', fontSize: 11, fontWeight: '700', textTransform: 'uppercase',
+    fontSize: 11, fontWeight: '700', textTransform: 'uppercase',
     letterSpacing: 0.8, paddingHorizontal: 16, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
+    borderBottomWidth: 1,
   },
   tsPeerRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
+    borderBottomWidth: 1,
   },
-  tsPeerName: { color: '#f0f0f0', fontSize: 15, fontWeight: '500' },
-  tsPeerIp: { color: '#5b8dd9', fontSize: 13, fontFamily: 'Menlo' },
-  tsPeerEmpty: { color: '#555', fontSize: 14, padding: 16, textAlign: 'center' },
-
-  qrBtn: {
-    backgroundColor: '#0d1520', borderRadius: 10, padding: 14,
-    alignItems: 'center', borderWidth: 1, borderColor: '#1e3a5f', marginBottom: 12,
-  },
-  qrBtnText: { color: '#93c5fd', fontWeight: '700', fontSize: 15 },
-  qrError: { color: '#f87171', fontSize: 12, marginBottom: 8 },
+  tsPeerName: { fontSize: 15, fontWeight: '500' },
+  tsPeerIp: { fontSize: 13, fontFamily: 'Menlo' },
+  tsPeerEmpty: { fontSize: 14, padding: 16, textAlign: 'center' },
+  qrBtn: { marginBottom: 12 },
+  qrError: { fontSize: 12, marginBottom: 8 },
   qrModal: { flex: 1, backgroundColor: '#000' },
   qrCamera: { flex: 1 },
   qrOverlay: {
@@ -583,10 +529,5 @@ const styles = StyleSheet.create({
     paddingBottom: 48, paddingTop: 20, alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.6)',
   },
-  qrHint: { color: '#ccc', fontSize: 14, marginBottom: 16, textAlign: 'center', paddingHorizontal: 24 },
-  qrCloseBtn: {
-    paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10,
-    backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#2a2a2a',
-  },
-  qrCloseBtnText: { color: '#f0f0f0', fontSize: 15, fontWeight: '600' },
+  qrHint: { fontSize: 14, marginBottom: 16, textAlign: 'center', paddingHorizontal: 24 },
 });

@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 
 interface FileChipProps {
   name: string;
@@ -27,12 +28,13 @@ function truncateName(name: string, max: number = 20): string {
 }
 
 export function FileChip({ name, size, onRemove }: FileChipProps) {
+  const theme = useTheme();
   return (
-    <View style={styles.chip}>
-      <Text style={styles.name} numberOfLines={1}>{truncateName(name)}</Text>
-      <Text style={styles.size}>{formatSize(size)}</Text>
+    <View style={[styles.chip, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
+      <Text style={[styles.name, { color: theme.colors.primary }]} numberOfLines={1}>{truncateName(name)}</Text>
+      <Text style={[styles.size, { color: theme.colors.onSurfaceVariant }]}>{formatSize(size)}</Text>
       <Pressable onPress={onRemove} hitSlop={8} style={styles.removeBtn}>
-        <Text style={styles.removeText}>✕</Text>
+        <Text style={[styles.removeText, { color: theme.colors.onSurfaceVariant }]}>✕</Text>
       </Pressable>
     </View>
   );
@@ -43,15 +45,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#1a1a2e',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  name: { color: '#a5b4fc', fontSize: 12, fontWeight: '500', maxWidth: 140 },
-  size: { color: '#6b7280', fontSize: 10 },
+  name: { fontSize: 12, fontWeight: '500', maxWidth: 140 },
+  size: { fontSize: 10 },
   removeBtn: { padding: 2 },
-  removeText: { color: '#6b7280', fontSize: 12 },
+  removeText: { fontSize: 12 },
 });

@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { SessionInfo, SessionPhase } from '../types';
 
 interface KanbanBoardProps {
@@ -20,16 +21,18 @@ function classifyPhase(
   return 'running';
 }
 
-const PHASE_META: Record<SessionPhase, { label: string; color: string; bg: string; border: string }> = {
-  running: { label: 'Running', color: '#4ade80', bg: '#0d1a0d', border: '#166534' },
-  waiting: { label: 'Waiting', color: '#fbbf24', bg: '#1c1500', border: '#78350f' },
-  complete: { label: 'Complete', color: '#93c5fd', bg: '#0d1a2e', border: '#1e3a5f' },
-  failed: { label: 'Failed', color: '#f87171', bg: '#1c0a0a', border: '#7f1d1d' },
-};
-
 const PHASE_ORDER: SessionPhase[] = ['waiting', 'running', 'complete', 'failed'];
 
 export function KanbanBoard({ sessions, activeSessionId, onSelect, hasUnread }: KanbanBoardProps) {
+  const theme = useTheme();
+
+  const PHASE_META: Record<SessionPhase, { label: string; color: string; border: string }> = {
+    running: { label: 'Running', color: theme.colors.primary, border: theme.colors.primary },
+    waiting: { label: 'Waiting', color: theme.colors.tertiary, border: theme.colors.tertiary },
+    complete: { label: 'Complete', color: theme.colors.onSurfaceVariant, border: theme.colors.outlineVariant },
+    failed: { label: 'Failed', color: theme.colors.error, border: theme.colors.error },
+  };
+
   const grouped = new Map<SessionPhase, SessionInfo[]>();
   for (const phase of PHASE_ORDER) grouped.set(phase, []);
 
@@ -44,14 +47,14 @@ export function KanbanBoard({ sessions, activeSessionId, onSelect, hasUnread }: 
         const meta = PHASE_META[phase];
         const items = grouped.get(phase) ?? [];
         return (
-          <View key={phase} style={[styles.column, { borderColor: meta.border }]}>
-            <View style={[styles.columnHeader, { backgroundColor: meta.bg }]}>
+          <View key={phase} style={[styles.column, { borderColor: meta.border, backgroundColor: theme.colors.surface }]}>
+            <View style={[styles.columnHeader, { backgroundColor: theme.colors.surfaceVariant }]}>
               <Text style={[styles.columnLabel, { color: meta.color }]}>{meta.label}</Text>
               <Text style={[styles.columnCount, { color: meta.color }]}>{items.length}</Text>
             </View>
             {items.length === 0 ? (
               <View style={styles.emptyCol}>
-                <Text style={styles.emptyColText}>—</Text>
+                <Text style={[styles.emptyColText, { color: theme.colors.onSurfaceVariant }]}>—</Text>
               </View>
             ) : (
               items.map(s => {
@@ -60,15 +63,19 @@ export function KanbanBoard({ sessions, activeSessionId, onSelect, hasUnread }: 
                 return (
                   <Pressable
                     key={s.session_id}
-                    style={[styles.card, isActive && styles.cardActive]}
+                    style={[
+                      styles.card,
+                      { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant },
+                      isActive && { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryContainer },
+                    ]}
                     onPress={() => onSelect(s.session_id)}
                   >
-                    {unread && !isActive && <View style={styles.unreadDot} />}
-                    <Text style={styles.cardPrompt} numberOfLines={2}>
+                    {unread && !isActive && <View style={[styles.unreadDot, { backgroundColor: theme.colors.error }]} />}
+                    <Text style={[styles.cardPrompt, { color: theme.colors.onSurface }]} numberOfLines={2}>
                       {s.prompt.length > 50 ? s.prompt.slice(0, 50) + '…' : s.prompt}
                     </Text>
                     {s.container ? (
-                      <Text style={styles.cardContainer} numberOfLines={1}>{s.container}</Text>
+                      <Text style={[styles.cardContainer, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>{s.container}</Text>
                     ) : null}
                   </Pressable>
                 );
@@ -91,7 +98,6 @@ const styles = StyleSheet.create({
     width: 160,
     borderRadius: 10,
     borderWidth: 1,
-    backgroundColor: '#111',
     overflow: 'hidden',
   },
   columnHeader: {
@@ -116,28 +122,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyColText: {
-    color: '#333',
     fontSize: 13,
   },
   card: {
     margin: 6,
     padding: 10,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
     borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  cardActive: {
-    borderColor: '#4a9eff',
-    backgroundColor: '#1a1a2e',
   },
   cardPrompt: {
-    color: '#e0e0e0',
     fontSize: 12,
     lineHeight: 16,
   },
   cardContainer: {
-    color: '#6b7280',
     fontSize: 10,
     fontFamily: 'Menlo',
     marginTop: 4,
@@ -149,6 +146,5 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#ef4444',
   },
 });

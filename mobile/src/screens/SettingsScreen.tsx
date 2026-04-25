@@ -7,12 +7,15 @@ import React, { useEffect, useState } from 'react';
 import {
   Linking,
   Modal,
-  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { Button, SegmentedButtons, useTheme } from 'react-native-paper';
+import { useThemeMode } from '../ThemeContext';
+import type { ThemeMode } from '../theme';
 
 import { DEFAULT_WHISPER_ENDPOINT, STT_ENGINE_KEY, STT_RECOGNIZER_LABEL_KEY, STT_RECOGNIZER_PKG_KEY, WHISPER_API_KEY_STORAGE, WHISPER_ENDPOINT_KEY } from '../components/VoiceButton';
 import { PromptLibraryScreen } from './PromptLibraryScreen';
@@ -77,6 +80,8 @@ interface SettingsScreenProps {
 }
 
 export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotifyConfig, onSendTestNotification, testNotificationResult, skills, onListSkills, onRunSkill, pastSessions, sessionHistory, onListPastSessions, onGetSessionHistory, searchResults, onSearchSessions, scheduledSessions, onScheduleSession, onCancelScheduledSession, onListScheduledSessions, savedPrompts, onListPrompts, onSavePrompt, onUpdatePrompt, onDeletePrompt, onUsePrompt, secrets, onListSecrets, onSetSecret, onDeleteSecret, devices, onListDevices, onRevokeDevice, onRenameDevice, approvalPolicies, onGetApprovalPolicies, onSetApprovalPolicy, onDeleteApprovalPolicy, onBrowseFiles, mcpServers, onListMcpServers }: SettingsScreenProps) {
+  const theme = useTheme();
+  const { mode: themeMode, setMode: setThemeMode } = useThemeMode();
   const [copied, setCopied] = useState(false);
   const [testFeedback, setTestFeedback] = useState<'idle' | 'sent' | 'failed'>('idle');
 
@@ -227,228 +232,195 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
         onCancel={onCancelScheduledSession}
         onRefresh={onListScheduledSessions}
       />
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Settings</Text>
-          <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-            <Text style={styles.closeText}>Done</Text>
-          </Pressable>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>Settings</Text>
+          <Button mode="text" onPress={onClose} compact>Done</Button>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.section}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Appearance</Text>
+          <SegmentedButtons
+            value={themeMode}
+            onValueChange={(v: string) => setThemeMode(v as ThemeMode)}
+            buttons={[
+              { value: 'system', label: 'System' },
+              { value: 'light', label: 'Light' },
+              { value: 'dark', label: 'Dark' },
+            ]}
+            density="small"
+          />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Push Notifications</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Push Notifications</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Install the ntfy app and subscribe to your topic to receive approval alerts and session updates.
           </Text>
 
           <View style={styles.topicRow}>
-            <View style={styles.topicBox}>
-              <Text style={styles.topicLabel}>Topic</Text>
-              <Text style={styles.topicValue} selectable>
+            <View style={[styles.topicBox, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]}>
+              <Text style={[styles.topicLabel, { color: theme.colors.onSurfaceVariant }]}>Topic</Text>
+              <Text style={[styles.topicValue, { color: theme.colors.primary }]} selectable>
                 {notifyConfig?.topic ?? '—'}
               </Text>
             </View>
-            <Pressable
-              style={[styles.copyBtn, copied && styles.copyBtnDone]}
-              onPress={handleCopy}
-              disabled={!notifyConfig?.topic}
-            >
-              <Text style={styles.copyBtnText}>{copied ? 'Copied' : 'Copy'}</Text>
-            </Pressable>
+            <Button mode="outlined" compact onPress={handleCopy} disabled={!notifyConfig?.topic}>
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
           </View>
 
           {notifyConfig?.base_url && notifyConfig.base_url !== 'https://ntfy.sh' && (
             <View style={styles.serverRow}>
-              <Text style={styles.serverLabel}>Server</Text>
-              <Text style={styles.serverValue} selectable>{notifyConfig.base_url}</Text>
+              <Text style={[styles.serverLabel, { color: theme.colors.onSurfaceVariant }]}>Server</Text>
+              <Text style={[styles.serverValue, { color: theme.colors.onSurfaceVariant }]} selectable>{notifyConfig.base_url}</Text>
             </View>
           )}
 
-          <Pressable
-            style={[styles.subscribeBtn, !notifyConfig?.topic && styles.subscribeBtnDisabled]}
-            onPress={handleSubscribe}
-            disabled={!notifyConfig?.topic}
-          >
-            <Text style={styles.subscribeBtnText}>Open in ntfy app →</Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={handleSubscribe} disabled={!notifyConfig?.topic}>
+            Open in ntfy app
+          </Button>
 
-          <Pressable
-            style={[styles.testBtn, !notifyConfig?.topic && styles.subscribeBtnDisabled]}
-            onPress={onSendTestNotification}
-            disabled={!notifyConfig?.topic}
-          >
-            <Text style={styles.testBtnText}>
-              {testFeedback === 'sent' ? '✓ Sent' : testFeedback === 'failed' ? '✗ Failed' : 'Send test notification'}
-            </Text>
-          </Pressable>
+          <Button mode="outlined" onPress={onSendTestNotification} disabled={!notifyConfig?.topic}>
+            {testFeedback === 'sent' ? 'Sent' : testFeedback === 'failed' ? 'Failed' : 'Send test notification'}
+          </Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Tailscale</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Tailscale</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Optional. Add an API key to browse your Tailscale peers from the connect screen.
             Generate one at tailscale.com → Settings → Keys.
           </Text>
           <View style={styles.tsKeyRow}>
             <TextInput
-              style={[styles.tsKeyInput]}
+              style={[styles.tsKeyInput, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
               value={tsApiKey}
               onChangeText={setTsApiKey}
               placeholder="tskey-api-..."
-              placeholderTextColor="#444"
+              placeholderTextColor={theme.colors.onSurfaceVariant}
               autoCapitalize="none"
               autoCorrect={false}
               secureTextEntry
             />
-            <Pressable
-              style={[styles.tsKeySaveBtn, tsKeySaved && styles.tsKeySaveBtnDone]}
-              onPress={saveTsKey}
-            >
-              <Text style={styles.tsKeySaveBtnText}>{tsKeySaved ? 'Saved' : 'Save'}</Text>
-            </Pressable>
+            <Button mode="outlined" compact onPress={saveTsKey}>
+              {tsKeySaved ? 'Saved' : 'Save'}
+            </Button>
           </View>
         </View>
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Session History</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Session History</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Browse and replay completed past sessions stored on the server.
           </Text>
-          <Pressable style={styles.historyBtn} onPress={() => setHistoryVisible(true)}>
-            <Text style={styles.historyBtnText}>View Session History →</Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={() => setHistoryVisible(true)}>View Session History</Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Skills</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Skills</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Browse skills installed on the remote host in ~/.claude/skills/.
           </Text>
-          <Pressable style={styles.skillsBtn} onPress={() => setSkillsVisible(true)}>
-            <Text style={styles.skillsBtnText}>
-              Browse Skills ({skills.length}) →
-            </Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={() => setSkillsVisible(true)}>
+            Browse Skills ({skills.length})
+          </Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Prompt Library</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Prompt Library</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Save and reuse prompt templates for common tasks.
           </Text>
-          <Pressable style={styles.promptLibBtn} onPress={() => setPromptLibraryVisible(true)}>
-            <Text style={styles.promptLibBtnText}>
-              Browse Prompts ({savedPrompts.length}) →
-            </Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={() => setPromptLibraryVisible(true)}>
+            Browse Prompts ({savedPrompts.length})
+          </Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Secrets Vault</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Secrets Vault</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Store encrypted secrets (API keys, tokens) and inject them as environment variables into CLI sessions.
           </Text>
-          <Pressable style={styles.secretsBtn} onPress={() => setSecretsVisible(true)}>
-            <Text style={styles.secretsBtnText}>
-              Manage Secrets ({secrets.length}) →
-            </Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={() => setSecretsVisible(true)}>
+            Manage Secrets ({secrets.length})
+          </Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Approval Policies</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Approval Policies</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Auto-approve safe tools (Read, Glob, Grep) and only get prompted for dangerous ones.
           </Text>
-          <Pressable style={styles.secretsBtn} onPress={() => setPolicyVisible(true)}>
-            <Text style={styles.secretsBtnText}>
-              Manage Policies ({approvalPolicies.length} rules) →
-            </Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={() => setPolicyVisible(true)}>
+            Manage Policies ({approvalPolicies.length} rules)
+          </Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Paired Devices</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Paired Devices</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             See which devices are connected and revoke access for any you don't recognize.
           </Text>
-          <Pressable style={styles.secretsBtn} onPress={() => setDevicesVisible(true)}>
-            <Text style={styles.secretsBtnText}>
-              Manage Devices ({devices.length}) →
-            </Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={() => setDevicesVisible(true)}>
+            Manage Devices ({devices.length})
+          </Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Project Files</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Project Files</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Browse the project file tree and edit CLAUDE.md config files from your phone.
           </Text>
-          <Pressable style={styles.historyBtn} onPress={onBrowseFiles}>
-            <Text style={styles.historyBtnText}>Browse Files →</Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={onBrowseFiles}>Browse Files</Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Scheduled Sessions</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Scheduled Sessions</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             Schedule a Claude session to start at a future time.
           </Text>
-          <Pressable style={styles.scheduleBtn} onPress={() => setScheduleVisible(true)}>
-            <Text style={styles.scheduleBtnText}>
-              Manage Scheduled ({scheduledSessions.filter(s => !s.fired).length} pending) →
-            </Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={() => setScheduleVisible(true)}>
+            Manage Scheduled ({scheduledSessions.filter((s: ScheduledSessionInfo) => !s.fired).length} pending)
+          </Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>MCP Servers</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>MCP Servers</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             View MCP servers configured in ~/.claude/settings.json on the remote host.
           </Text>
-          <Pressable style={styles.skillsBtn} onPress={() => setMcpVisible(true)}>
-            <Text style={styles.skillsBtnText}>
-              Browse MCP Servers ({mcpServers.length}) →
-            </Text>
-          </Pressable>
+          <Button mode="contained-tonal" onPress={() => setMcpVisible(true)}>
+            Browse MCP Servers ({mcpServers.length})
+          </Button>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Voice Input</Text>
-          <Text style={styles.sectionSubtitle}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Voice Input</Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.onSurfaceVariant }]}>
             On-device uses Android's built-in recognizer. Whisper API sends audio to OpenAI (or a compatible endpoint) for transcription.
           </Text>
 
-          <View style={styles.enginePicker}>
-            <Pressable
-              style={[styles.engineOption, sttEngine === 'ondevice' && styles.engineOptionActive]}
-              onPress={() => handleEngineChange('ondevice')}
-            >
-              <Text style={[styles.engineOptionText, sttEngine === 'ondevice' && styles.engineOptionTextActive]}>
-                On-device
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.engineOption, sttEngine === 'whisper' && styles.engineOptionActive]}
-              onPress={() => handleEngineChange('whisper')}
-            >
-              <Text style={[styles.engineOptionText, sttEngine === 'whisper' && styles.engineOptionTextActive]}>
-                Whisper API
-              </Text>
-            </Pressable>
-          </View>
+          <SegmentedButtons
+            value={sttEngine}
+            onValueChange={(v: string) => handleEngineChange(v as 'ondevice' | 'whisper')}
+            buttons={[
+              { value: 'ondevice', label: 'On-device' },
+              { value: 'whisper', label: 'Whisper API' },
+            ]}
+            density="small"
+          />
 
           {sttEngine === 'ondevice' && (
-            <View style={styles.recognizerRow}>
+            <View style={[styles.recognizerRow, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]}>
               <View style={styles.recognizerInfo}>
-                <Text style={styles.recognizerLabel}>Recognizer</Text>
-                <Text style={styles.recognizerValue}>
+                <Text style={[styles.recognizerLabel, { color: theme.colors.onSurfaceVariant }]}>Recognizer</Text>
+                <Text style={[styles.recognizerValue, { color: theme.colors.onSurface }]}>
                   {recognizerLabel ?? 'Auto-detect on next tap'}
                 </Text>
               </View>
               {recognizerLabel && (
-                <Pressable style={styles.resetBtn} onPress={resetRecognizer}>
-                  <Text style={styles.resetBtnText}>Reset</Text>
-                </Pressable>
+                <Button mode="outlined" compact onPress={resetRecognizer} textColor={theme.colors.error}>Reset</Button>
               )}
             </View>
           )}
@@ -456,43 +428,39 @@ export function SettingsScreen({ visible, onClose, notifyConfig, onRequestNotify
           {sttEngine === 'whisper' && (
             <>
               <TextInput
-                style={styles.tsKeyInput}
+                style={[styles.tsKeyInput, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
                 value={whisperApiKey}
                 onChangeText={setWhisperApiKey}
                 placeholder="sk-... (OpenAI API key)"
-                placeholderTextColor="#444"
+                placeholderTextColor={theme.colors.onSurfaceVariant}
                 autoCapitalize="none"
                 autoCorrect={false}
                 secureTextEntry
               />
               <TextInput
-                style={styles.tsKeyInput}
+                style={[styles.tsKeyInput, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
                 value={whisperEndpoint}
                 onChangeText={setWhisperEndpoint}
                 placeholder={DEFAULT_WHISPER_ENDPOINT}
-                placeholderTextColor="#444"
+                placeholderTextColor={theme.colors.onSurfaceVariant}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <Pressable
-                style={[styles.tsKeySaveBtn, whisperSaved && styles.tsKeySaveBtnDone]}
-                onPress={saveWhisperSettings}
-              >
-                <Text style={styles.tsKeySaveBtnText}>{whisperSaved ? 'Saved ✓' : 'Save'}</Text>
-              </Pressable>
+              <Button mode="outlined" onPress={saveWhisperSettings}>
+                {whisperSaved ? 'Saved' : 'Save'}
+              </Button>
             </>
           )}
         </View>
+        </ScrollView>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
+  container: { flex: 1 },
+  scrollContent: { paddingBottom: 40 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -501,270 +469,41 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
   },
-  title: {
-    color: '#f0f0f0',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  closeBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  closeText: {
-    color: '#4ade80',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  section: {
-    padding: 20,
-    gap: 12,
-  },
+  title: { fontSize: 18, fontWeight: '700' },
+  section: { padding: 20, gap: 12 },
   sectionLabel: {
-    color: '#888',
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 4,
+    fontSize: 11, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4,
   },
-  sectionSubtitle: {
-    color: '#555',
-    fontSize: 13,
-    lineHeight: 18,
-  },
+  sectionSubtitle: { fontSize: 13, lineHeight: 18 },
   topicRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4,
   },
   topicBox: {
-    flex: 1,
-    backgroundColor: '#0d0d0d',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    padding: 12,
+    flex: 1, borderRadius: 8, borderWidth: 1, padding: 12,
   },
   topicLabel: {
-    color: '#444',
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
+    fontSize: 10, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4,
   },
-  topicValue: {
-    color: '#93c5fd',
-    fontFamily: 'Menlo',
-    fontSize: 12,
-  },
-  copyBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#111',
-  },
-  copyBtnDone: {
-    borderColor: '#166534',
-    backgroundColor: '#052e16',
-  },
-  copyBtnText: {
-    color: '#888',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  serverRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  serverLabel: {
-    color: '#444',
-    fontSize: 11,
-    fontWeight: '600',
-    width: 48,
-  },
-  serverValue: {
-    color: '#555',
-    fontSize: 12,
-    fontFamily: 'Menlo',
-    flex: 1,
-  },
-  subscribeBtn: {
-    backgroundColor: '#1e3a5f',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  subscribeBtnDisabled: {
-    opacity: 0.35,
-  },
-  subscribeBtnText: {
-    color: '#93c5fd',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  testBtn: {
-    backgroundColor: '#111',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  testBtnText: {
-    color: '#888',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  historyBtn: {
-    backgroundColor: '#0d1a2e',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#1e3a5f',
-    marginTop: 4,
-  },
-  historyBtnText: {
-    color: '#93c5fd',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  skillsBtn: {
-    backgroundColor: '#1e1b4b',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#3730a3',
-    marginTop: 4,
-  },
-  skillsBtnText: {
-    color: '#a5b4fc',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  promptLibBtn: {
-    backgroundColor: '#1a1a0d',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#4a4a00',
-    marginTop: 4,
-  },
-  promptLibBtnText: {
-    color: '#fbbf24',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  secretsBtn: {
-    backgroundColor: '#1a0d1a',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#4a1a4a',
-    marginTop: 4,
-  },
-  secretsBtnText: {
-    color: '#c084fc',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  scheduleBtn: {
-    backgroundColor: '#0d1a0d',
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#166534',
-    marginTop: 4,
-  },
-  scheduleBtnText: {
-    color: '#4ade80',
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  topicValue: { fontFamily: 'Menlo', fontSize: 12 },
+  serverRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  serverLabel: { fontSize: 11, fontWeight: '600', width: 48 },
+  serverValue: { fontSize: 12, fontFamily: 'Menlo', flex: 1 },
   tsKeyRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   tsKeyInput: {
-    flex: 1, backgroundColor: '#0d0d0d', borderRadius: 8, borderWidth: 1,
-    borderColor: '#2a2a2a', padding: 12, color: '#f0f0f0', fontSize: 13,
-    fontFamily: 'Menlo',
-  },
-  tsKeySaveBtn: {
-    paddingHorizontal: 14, paddingVertical: 12, borderRadius: 8,
-    borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#111',
-  },
-  tsKeySaveBtnDone: { borderColor: '#166534', backgroundColor: '#052e16' },
-  tsKeySaveBtnText: { color: '#888', fontSize: 13, fontWeight: '600' },
-  enginePicker: {
-    flexDirection: 'row',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    overflow: 'hidden',
-  },
-  engineOption: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    backgroundColor: '#0d0d0d',
-  },
-  engineOptionActive: {
-    backgroundColor: '#1a1a1a',
-    borderBottomWidth: 2,
-    borderBottomColor: '#4ade80',
-  },
-  engineOptionText: {
-    color: '#555',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  engineOptionTextActive: {
-    color: '#f0f0f0',
+    flex: 1, borderRadius: 8, borderWidth: 1,
+    padding: 12, fontSize: 13, fontFamily: 'Menlo',
   },
   recognizerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#0d0d0d',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    padding: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 8, borderWidth: 1, padding: 12,
   },
   recognizerInfo: { flex: 1 },
   recognizerLabel: {
-    color: '#444',
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 3,
+    fontSize: 10, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3,
   },
-  recognizerValue: {
-    color: '#f0f0f0',
-    fontSize: 13,
-  },
-  resetBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#3a1a1a',
-    backgroundColor: '#1a0a0a',
-  },
-  resetBtnText: {
-    color: '#DA7756',
-    fontSize: 12,
-    fontWeight: '600',
-  },
+  recognizerValue: { fontSize: 13 },
 });

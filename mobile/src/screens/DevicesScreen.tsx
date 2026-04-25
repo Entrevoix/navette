@@ -6,12 +6,12 @@ import {
   Alert,
   FlatList,
   Modal,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { Button, useTheme } from 'react-native-paper';
 import type { DeviceEntry } from '../types';
 
 interface DevicesScreenProps {
@@ -32,6 +32,7 @@ function relativeTime(ts: number): string {
 }
 
 export function DevicesScreen({ visible, onClose, devices, onRefresh, onRevoke, onRename }: DevicesScreenProps) {
+  const theme = useTheme();
   const [renameTarget, setRenameTarget] = useState<DeviceEntry | null>(null);
   const [renameText, setRenameText] = useState('');
 
@@ -65,12 +66,10 @@ export function DevicesScreen({ visible, onClose, devices, onRefresh, onRevoke, 
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Paired Devices</Text>
-          <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-            <Text style={styles.closeText}>Done</Text>
-          </Pressable>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>Paired Devices</Text>
+          <Button mode="text" onPress={onClose}>Done</Button>
         </View>
 
         <FlatList
@@ -78,29 +77,25 @@ export function DevicesScreen({ visible, onClose, devices, onRefresh, onRevoke, 
           keyExtractor={d => d.device_id}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No paired devices yet.</Text>
+            <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>No paired devices yet.</Text>
           }
           renderItem={({ item }) => (
-            <View style={[styles.row, item.revoked && styles.rowRevoked]}>
+            <View style={[styles.row, { borderBottomColor: theme.colors.outlineVariant }, item.revoked && styles.rowRevoked]}>
               <View style={styles.rowInfo}>
-                <Text style={styles.deviceName}>{item.name}</Text>
-                <Text style={styles.deviceId}>{item.device_id.slice(0, 16)}{item.device_id.length > 16 ? '…' : ''}</Text>
-                <Text style={styles.deviceMeta}>
+                <Text style={[styles.deviceName, { color: theme.colors.onSurface }]}>{item.name}</Text>
+                <Text style={[styles.deviceId, { color: theme.colors.onSurfaceVariant }]}>{item.device_id.slice(0, 16)}{item.device_id.length > 16 ? '…' : ''}</Text>
+                <Text style={[styles.deviceMeta, { color: theme.colors.onSurfaceVariant }]}>
                   {item.revoked ? 'Revoked' : `Last seen ${relativeTime(item.last_seen)}`}
                 </Text>
               </View>
               {!item.revoked && (
-                <Pressable style={styles.renameBtn} onPress={() => handleRename(item)}>
-                  <Text style={styles.renameBtnText}>Rename</Text>
-                </Pressable>
+                <Button mode="outlined" compact onPress={() => handleRename(item)}>Rename</Button>
               )}
               {!item.revoked ? (
-                <Pressable style={styles.revokeBtn} onPress={() => handleRevoke(item)}>
-                  <Text style={styles.revokeBtnText}>Revoke</Text>
-                </Pressable>
+                <Button mode="outlined" compact onPress={() => handleRevoke(item)} textColor={theme.colors.error} style={{ borderColor: theme.colors.error }}>Revoke</Button>
               ) : (
-                <View style={styles.revokedBadge}>
-                  <Text style={styles.revokedBadgeText}>Revoked</Text>
+                <View style={[styles.revokedBadge, { backgroundColor: theme.colors.surfaceVariant }]}>
+                  <Text style={[styles.revokedBadgeText, { color: theme.colors.onSurfaceVariant }]}>Revoked</Text>
                 </View>
               )}
             </View>
@@ -109,25 +104,21 @@ export function DevicesScreen({ visible, onClose, devices, onRefresh, onRevoke, 
 
         <Modal visible={renameTarget !== null} transparent animationType="fade" onRequestClose={() => setRenameTarget(null)}>
           <View style={styles.overlay}>
-            <View style={styles.dialog}>
-              <Text style={styles.dialogTitle}>Rename Device</Text>
+            <View style={[styles.dialog, { backgroundColor: theme.colors.surfaceVariant }]}>
+              <Text style={[styles.dialogTitle, { color: theme.colors.onSurface }]}>Rename Device</Text>
               <TextInput
-                style={styles.dialogInput}
+                style={[styles.dialogInput, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
                 value={renameText}
                 onChangeText={setRenameText}
                 placeholder="Device name"
-                placeholderTextColor="#555"
+                placeholderTextColor={theme.colors.onSurfaceVariant}
                 autoFocus
                 onSubmitEditing={submitRename}
                 returnKeyType="done"
               />
               <View style={styles.dialogButtons}>
-                <Pressable style={styles.dialogBtn} onPress={() => setRenameTarget(null)}>
-                  <Text style={styles.dialogBtnCancel}>Cancel</Text>
-                </Pressable>
-                <Pressable style={styles.dialogBtn} onPress={submitRename}>
-                  <Text style={styles.dialogBtnConfirm}>Rename</Text>
-                </Pressable>
+                <Button mode="text" onPress={() => setRenameTarget(null)}>Cancel</Button>
+                <Button mode="contained-tonal" onPress={submitRename}>Rename</Button>
               </View>
             </View>
           </View>
@@ -138,55 +129,39 @@ export function DevicesScreen({ visible, onClose, devices, onRefresh, onRevoke, 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
+    borderBottomWidth: 1,
   },
-  title: { color: '#f0f0f0', fontSize: 18, fontWeight: '700' },
-  closeBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  closeText: { color: '#4ade80', fontSize: 15, fontWeight: '600' },
+  title: { fontSize: 18, fontWeight: '700' },
   list: { paddingHorizontal: 16, paddingBottom: 12 },
-  emptyText: { color: '#555', fontSize: 14, textAlign: 'center', paddingVertical: 32 },
+  emptyText: { fontSize: 14, textAlign: 'center', paddingVertical: 32 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
+    paddingVertical: 12, borderBottomWidth: 1,
   },
   rowRevoked: { opacity: 0.5 },
   rowInfo: { flex: 1 },
-  deviceName: { color: '#f0f0f0', fontSize: 14, fontWeight: '600' },
-  deviceId: { color: '#555', fontSize: 11, fontFamily: 'Menlo', marginTop: 2 },
-  deviceMeta: { color: '#888', fontSize: 12, marginTop: 4 },
-  renameBtn: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-    borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#111',
-  },
-  renameBtnText: { color: '#888', fontSize: 12, fontWeight: '600' },
-  revokeBtn: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-    borderWidth: 1, borderColor: '#3a1a1a', backgroundColor: '#1a0a0a',
-  },
-  revokeBtnText: { color: '#f87171', fontSize: 12, fontWeight: '600' },
+  deviceName: { fontSize: 14, fontWeight: '600' },
+  deviceId: { fontSize: 11, fontFamily: 'Menlo', marginTop: 2 },
+  deviceMeta: { fontSize: 12, marginTop: 4 },
   revokedBadge: {
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-    backgroundColor: '#1a0a0a',
   },
-  revokedBadgeText: { color: '#666', fontSize: 12, fontWeight: '600' },
+  revokedBadgeText: { fontSize: 12, fontWeight: '600' },
   overlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center', alignItems: 'center', padding: 32,
   },
   dialog: {
-    backgroundColor: '#1a1a1a', borderRadius: 12, padding: 20, width: '100%', maxWidth: 340,
+    borderRadius: 12, padding: 20, width: '100%', maxWidth: 340,
   },
-  dialogTitle: { color: '#f0f0f0', fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  dialogTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
   dialogInput: {
-    backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#2a2a2a',
-    color: '#f0f0f0', fontSize: 14, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16,
+    borderRadius: 8, borderWidth: 1,
+    fontSize: 14, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16,
   },
-  dialogButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
-  dialogBtn: { paddingHorizontal: 14, paddingVertical: 8 },
-  dialogBtnCancel: { color: '#888', fontSize: 14, fontWeight: '600' },
-  dialogBtnConfirm: { color: '#4ade80', fontSize: 14, fontWeight: '600' },
+  dialogButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
 });

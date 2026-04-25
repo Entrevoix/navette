@@ -6,12 +6,12 @@ import {
   Alert,
   FlatList,
   Modal,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { Button, IconButton, useTheme } from 'react-native-paper';
 import type { SecretEntry } from '../types';
 
 interface SecretsScreenProps {
@@ -24,6 +24,7 @@ interface SecretsScreenProps {
 }
 
 export function SecretsScreen({ visible, onClose, secrets, onRefresh, onSave, onDelete }: SecretsScreenProps) {
+  const theme = useTheme();
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
   const [editing, setEditing] = useState(false);
@@ -51,16 +52,14 @@ export function SecretsScreen({ visible, onClose, secrets, onRefresh, onSave, on
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Secrets</Text>
-          <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-            <Text style={styles.closeText}>Done</Text>
-          </Pressable>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>Secrets</Text>
+          <Button mode="text" onPress={onClose}>Done</Button>
         </View>
 
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>
+        <View style={[styles.banner, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.bannerText, { color: theme.colors.onSurfaceVariant }]}>
             Secrets are encrypted at rest and injected as environment variables into CLI sessions. Values are write-only — they cannot be read back.
           </Text>
         </View>
@@ -70,63 +69,57 @@ export function SecretsScreen({ visible, onClose, secrets, onRefresh, onSave, on
           keyExtractor={s => s.name}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No secrets stored yet.</Text>
+            <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>No secrets stored yet.</Text>
           }
           renderItem={({ item }) => (
-            <View style={styles.row}>
+            <View style={[styles.row, { borderBottomColor: theme.colors.outlineVariant }]}>
               <View style={styles.rowInfo}>
-                <Text style={styles.secretName}>{item.name}</Text>
-                <Text style={styles.secretMasked}>{item.masked}</Text>
+                <Text style={[styles.secretName, { color: theme.colors.onSurface }]}>{item.name}</Text>
+                <Text style={[styles.secretMasked, { color: theme.colors.onSurfaceVariant }]}>{item.masked}</Text>
               </View>
-              <Pressable style={styles.updateBtn} onPress={() => { setName(item.name); setValue(''); setEditing(true); }}>
-                <Text style={styles.updateBtnText}>Update</Text>
-              </Pressable>
-              <Pressable style={styles.deleteBtn} onPress={() => handleDelete(item.name)}>
-                <Text style={styles.deleteBtnText}>Delete</Text>
-              </Pressable>
+              <Button mode="outlined" compact onPress={() => { setName(item.name); setValue(''); setEditing(true); }}>Update</Button>
+              <IconButton icon="delete" size={20} iconColor={theme.colors.error} onPress={() => handleDelete(item.name)} />
             </View>
           )}
         />
 
         {editing ? (
-          <View style={styles.form}>
-            <Text style={styles.formLabel}>{secrets.some(s => s.name === name.trim()) ? `Update: ${name}` : `New: ${name || '…'}`}</Text>
+          <View style={[styles.form, { borderTopColor: theme.colors.outlineVariant }]}>
+            <Text style={[styles.formLabel, { color: theme.colors.onSurfaceVariant }]}>{secrets.some(s => s.name === name.trim()) ? `Update: ${name}` : `New: ${name || '…'}`}</Text>
             <TextInput
-              style={styles.formInput}
+              style={[styles.formInput, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
               value={name}
               onChangeText={setName}
               placeholder="SECRET_NAME"
-              placeholderTextColor="#444"
+              placeholderTextColor={theme.colors.onSurfaceVariant}
               autoCapitalize="characters"
               autoCorrect={false}
             />
             <TextInput
-              style={styles.formInput}
+              style={[styles.formInput, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
               value={value}
-              onChangeText={setValue}
+              onChangeText={(v: string) => setValue(v)}
               placeholder="secret value"
-              placeholderTextColor="#444"
+              placeholderTextColor={theme.colors.onSurfaceVariant}
               autoCorrect={false}
               secureTextEntry
             />
             <View style={styles.formActions}>
-              <Pressable style={styles.cancelBtn} onPress={() => { setEditing(false); setName(''); setValue(''); }}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.saveBtn, (!name.trim() || !value.trim()) && styles.saveBtnDisabled]}
+              <Button mode="outlined" onPress={() => { setEditing(false); setName(''); setValue(''); }}>Cancel</Button>
+              <Button
+                mode="contained-tonal"
                 onPress={handleSave}
                 disabled={!name.trim() || !value.trim()}
               >
-                <Text style={styles.saveBtnText}>Save</Text>
-              </Pressable>
+                Save
+              </Button>
             </View>
           </View>
         ) : (
-          <View style={styles.addRow}>
-            <Pressable style={styles.addBtn} onPress={() => setEditing(true)}>
-              <Text style={styles.addBtnText}>+ Add Secret</Text>
-            </Pressable>
+          <View style={[styles.addRow, { borderTopColor: theme.colors.outlineVariant }]}>
+            <Button mode="contained-tonal" onPress={() => setEditing(true)} style={styles.addBtn}>
+              + Add Secret
+            </Button>
           </View>
         )}
       </View>
@@ -135,61 +128,34 @@ export function SecretsScreen({ visible, onClose, secrets, onRefresh, onSave, on
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
+    borderBottomWidth: 1,
   },
-  title: { color: '#f0f0f0', fontSize: 18, fontWeight: '700' },
-  closeBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  closeText: { color: '#4ade80', fontSize: 15, fontWeight: '600' },
+  title: { fontSize: 18, fontWeight: '700' },
   banner: {
     margin: 16, padding: 12, borderRadius: 8,
-    backgroundColor: '#1a1500', borderWidth: 1, borderColor: '#3a2e00',
+    borderWidth: 1,
   },
-  bannerText: { color: '#fbbf24', fontSize: 12, lineHeight: 18 },
+  bannerText: { fontSize: 12, lineHeight: 18 },
   list: { paddingHorizontal: 16, paddingBottom: 12 },
-  emptyText: { color: '#555', fontSize: 14, textAlign: 'center', paddingVertical: 32 },
+  emptyText: { fontSize: 14, textAlign: 'center', paddingVertical: 32 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
+    paddingVertical: 12, borderBottomWidth: 1,
   },
   rowInfo: { flex: 1 },
-  secretName: { color: '#f0f0f0', fontSize: 14, fontWeight: '600', fontFamily: 'Menlo' },
-  secretMasked: { color: '#555', fontSize: 12, fontFamily: 'Menlo', marginTop: 2 },
-  updateBtn: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-    borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#111',
-  },
-  updateBtnText: { color: '#888', fontSize: 12, fontWeight: '600' },
-  deleteBtn: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-    borderWidth: 1, borderColor: '#3a1a1a', backgroundColor: '#1a0a0a',
-  },
-  deleteBtnText: { color: '#f87171', fontSize: 12, fontWeight: '600' },
-  form: { padding: 16, gap: 10, borderTopWidth: 1, borderTopColor: '#1a1a1a' },
-  formLabel: { color: '#888', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  secretName: { fontSize: 14, fontWeight: '600', fontFamily: 'Menlo' },
+  secretMasked: { fontSize: 12, fontFamily: 'Menlo', marginTop: 2 },
+  form: { padding: 16, gap: 10, borderTopWidth: 1 },
+  formLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   formInput: {
-    backgroundColor: '#0d0d0d', borderRadius: 8, borderWidth: 1, borderColor: '#2a2a2a',
-    padding: 12, color: '#f0f0f0', fontSize: 13, fontFamily: 'Menlo',
+    borderRadius: 8, borderWidth: 1,
+    padding: 12, fontSize: 13, fontFamily: 'Menlo',
   },
   formActions: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
-  cancelBtn: {
-    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8,
-    borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#111',
-  },
-  cancelBtnText: { color: '#888', fontSize: 13, fontWeight: '600' },
-  saveBtn: {
-    paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8,
-    backgroundColor: '#166534',
-  },
-  saveBtnDisabled: { opacity: 0.35 },
-  saveBtnText: { color: '#f0f0f0', fontSize: 13, fontWeight: '700' },
-  addRow: { padding: 16, borderTopWidth: 1, borderTopColor: '#1a1a1a' },
-  addBtn: {
-    backgroundColor: '#111', borderRadius: 8, paddingVertical: 14,
-    alignItems: 'center', borderWidth: 1, borderColor: '#2a2a2a',
-  },
-  addBtnText: { color: '#4ade80', fontSize: 15, fontWeight: '700' },
+  addRow: { padding: 16, borderTopWidth: 1 },
+  addBtn: { width: '100%' },
 });

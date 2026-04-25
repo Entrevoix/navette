@@ -14,6 +14,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useTheme } from 'react-native-paper';
 import { PendingApproval } from '../types';
 import { toolInputToDiff } from '../utils/diff';
 import { DiffView } from './DiffView';
@@ -84,6 +85,7 @@ function renderFields(toolName: string, input: Record<string, unknown>): Rendere
 }
 
 export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
+  const theme = useTheme();
   const translateX = useSharedValue(0);
   const [expanded, setExpanded] = useState(false);
   const fields = renderFields(approval.tool_name, approval.tool_input);
@@ -126,7 +128,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
   const urgentBorderStyle = useAnimatedStyle(() => ({
     borderColor: isUrgent
       ? `rgba(249, 115, 22, ${borderOpacity.value})`
-      : '#2a2a2a',
+      : theme.colors.outlineVariant,
   }));
 
   const dismiss = useCallback((allow: boolean) => {
@@ -173,33 +175,33 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
 
   return (
     <View style={styles.wrapper}>
-      <Animated.View style={[styles.hint, styles.hintAllow, allowOpacity]}>
-        <Text style={styles.hintText}>ALLOW</Text>
+      <Animated.View style={[styles.hint, styles.hintAllow, { backgroundColor: theme.colors.primaryContainer }, allowOpacity]}>
+        <Text style={[styles.hintText, { color: theme.colors.primary }]}>ALLOW</Text>
       </Animated.View>
-      <Animated.View style={[styles.hint, styles.hintDeny, denyOpacity]}>
-        <Text style={styles.hintText}>DENY</Text>
+      <Animated.View style={[styles.hint, styles.hintDeny, { backgroundColor: theme.colors.errorContainer }, denyOpacity]}>
+        <Text style={[styles.hintText, { color: theme.colors.error }]}>DENY</Text>
       </Animated.View>
 
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={[styles.card, animatedStyle, urgentBorderStyle]}>
+        <Animated.View style={[styles.card, { backgroundColor: theme.colors.surface }, animatedStyle, urgentBorderStyle]}>
           <View style={styles.header}>
-            <View style={styles.toolBadge}>
-              <Text style={styles.toolName}>{approval.tool_name}</Text>
+            <View style={[styles.toolBadge, { backgroundColor: theme.colors.primaryContainer }]}>
+              <Text style={[styles.toolName, { color: theme.colors.primary }]}>{approval.tool_name}</Text>
             </View>
             <View style={styles.headerRight}>
               {secsRemaining !== null && (
-                <Text style={[styles.countdown, secsRemaining <= 30 && styles.countdownWarn]}>
+                <Text style={[styles.countdown, { color: theme.colors.onSurfaceVariant }, secsRemaining <= 30 && { color: theme.colors.error }]}>
                   {secsRemaining}s
                 </Text>
               )}
-              <Text style={styles.seqLabel}>#{approval.seq}</Text>
+              <Text style={[styles.seqLabel, { color: theme.colors.onSurfaceVariant }]}>#{approval.seq}</Text>
             </View>
           </View>
 
           {primaryField && (
-            <View style={styles.primaryField}>
-              <Text style={styles.primaryLabel}>{primaryField.label}</Text>
-              <Text selectable style={styles.primaryValue} numberOfLines={expanded ? undefined : 4}>
+            <View style={[styles.primaryField, { backgroundColor: theme.colors.background, borderColor: theme.colors.outlineVariant }]}>
+              <Text style={[styles.primaryLabel, { color: theme.colors.onSurfaceVariant }]}>{primaryField.label}</Text>
+              <Text selectable style={[styles.primaryValue, { color: theme.colors.onSurface }]} numberOfLines={expanded ? undefined : 4}>
                 {primaryField.value}
               </Text>
             </View>
@@ -210,32 +212,32 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
           {secondaryFields.length > 0 && !diffLines && (
             <Pressable onPress={() => setExpanded(x => !x)} style={styles.inputArea}>
               <ScrollView
-                style={[styles.inputScroll, expanded ? styles.inputScrollExpanded : styles.inputScrollCollapsed]}
+                style={[styles.inputScroll, { backgroundColor: theme.colors.background, borderColor: theme.colors.outlineVariant }, expanded ? styles.inputScrollExpanded : styles.inputScrollCollapsed]}
                 scrollEnabled={expanded}
                 showsVerticalScrollIndicator={expanded}
                 nestedScrollEnabled
               >
                 {secondaryFields.map(({ label, value, isCode }, idx) => (
                   <View key={`${label}-${idx}`} style={styles.field}>
-                    <Text style={styles.fieldLabel}>{label}</Text>
-                    <Text selectable style={[styles.fieldValue, isCode && styles.fieldValueCode]}>{value}</Text>
+                    <Text style={[styles.fieldLabel, { color: theme.colors.onSurfaceVariant }]}>{label}</Text>
+                    <Text selectable style={[styles.fieldValue, { color: theme.colors.onSurface }, isCode && styles.fieldValueCode]}>{value}</Text>
                   </View>
                 ))}
               </ScrollView>
-              <Text style={styles.expandHint}>{expanded ? '▲ collapse' : '▼ more'}</Text>
+              <Text style={[styles.expandHint, { color: theme.colors.onSurfaceVariant }]}>{expanded ? '▲ collapse' : '▼ more'}</Text>
             </Pressable>
           )}
 
           <View style={styles.actions}>
-            <Pressable style={[styles.btn, styles.denyBtn]} onPress={() => dismiss(false)}>
-              <Text style={styles.denyText}>Deny</Text>
+            <Pressable style={[styles.btn, styles.denyBtn, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]} onPress={() => dismiss(false)}>
+              <Text style={[styles.denyText, { color: theme.colors.onSurfaceVariant }]}>Deny</Text>
             </Pressable>
-            <Pressable style={[styles.btn, styles.allowBtn]} onPress={() => dismiss(true)}>
-              <Text style={styles.allowText}>Allow</Text>
+            <Pressable style={[styles.btn, styles.allowBtn, { backgroundColor: theme.colors.primaryContainer }]} onPress={() => dismiss(true)}>
+              <Text style={[styles.allowText, { color: theme.colors.primary }]}>Allow</Text>
             </Pressable>
           </View>
 
-          <Text style={styles.swipeHint}>← swipe to deny · swipe to allow →</Text>
+          <Text style={[styles.swipeHint, { color: theme.colors.onSurfaceVariant }]}>← swipe to deny · swipe to allow →</Text>
         </Animated.View>
       </GestureDetector>
     </View>
@@ -260,15 +262,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     zIndex: 0,
   },
-  hintAllow: { right: 0, backgroundColor: '#14532d' },
-  hintDeny: { left: 0, backgroundColor: '#450a0a' },
-  hintText: { fontWeight: '800', fontSize: 13, letterSpacing: 1, color: '#fff' },
+  hintAllow: { right: 0 },
+  hintDeny: { left: 0 },
+  hintText: { fontWeight: '800', fontSize: 13, letterSpacing: 1 },
   card: {
-    backgroundColor: '#141414',
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
     zIndex: 1,
   },
   header: {
@@ -278,27 +278,22 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   toolBadge: {
-    backgroundColor: '#1e3a5f',
     borderRadius: 6,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  toolName: { color: '#93c5fd', fontWeight: '700', fontSize: 13, letterSpacing: 0.3 },
+  toolName: { fontWeight: '700', fontSize: 13, letterSpacing: 0.3 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  countdown: { color: '#9ca3af', fontSize: 12, fontVariant: ['tabular-nums'] },
-  countdownWarn: { color: '#f97316' },
-  seqLabel: { color: '#9ca3af', fontSize: 12 },
+  countdown: { fontSize: 12, fontVariant: ['tabular-nums'] },
+  seqLabel: { fontSize: 12 },
 
   primaryField: {
-    backgroundColor: '#0d0d0d',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#222',
     padding: 12,
     marginBottom: 10,
   },
   primaryLabel: {
-    color: '#71717a',
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -306,7 +301,6 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   primaryValue: {
-    color: '#e2e8f0',
     fontFamily: MONO,
     fontSize: 13,
     lineHeight: 20,
@@ -314,32 +308,29 @@ const styles = StyleSheet.create({
 
   inputArea: { marginBottom: 14 },
   inputScroll: {
-    backgroundColor: '#0d0d0d',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
     padding: 10,
   },
   inputScrollCollapsed: { maxHeight: 100 },
   inputScrollExpanded: { maxHeight: 280 },
   field: { marginBottom: 10 },
   fieldLabel: {
-    color: '#71717a',
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 3,
   },
-  fieldValue: { color: '#a8a8b0', fontSize: 12, lineHeight: 18 },
-  fieldValueCode: { fontFamily: MONO, color: '#a8a8b0' },
-  expandHint: { color: '#6b7280', fontSize: 10, textAlign: 'right', marginTop: 4 },
+  fieldValue: { fontSize: 12, lineHeight: 18 },
+  fieldValueCode: { fontFamily: MONO },
+  expandHint: { fontSize: 10, textAlign: 'right', marginTop: 4 },
 
   actions: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   btn: { flex: 1, paddingVertical: 13, borderRadius: 8, alignItems: 'center' },
-  allowBtn: { backgroundColor: '#14532d' },
-  denyBtn: { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#3f3f3f' },
-  allowText: { color: '#4ade80', fontWeight: '700', fontSize: 15 },
-  denyText: { color: '#888', fontWeight: '600', fontSize: 15 },
-  swipeHint: { textAlign: 'center', color: '#52525b', fontSize: 11 },
+  allowBtn: {},
+  denyBtn: { borderWidth: 1 },
+  allowText: { fontWeight: '700', fontSize: 15 },
+  denyText: { fontWeight: '600', fontSize: 15 },
+  swipeHint: { textAlign: 'center', fontSize: 11 },
 });

@@ -14,6 +14,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Appbar, Button, Chip, SegmentedButtons, useTheme } from 'react-native-paper';
+import { getStatusColors, getSemanticColors } from '../theme';
+import { useThemeMode } from '../ThemeContext';
 import { ChatView } from '../components/ChatView';
 import { DirPicker } from '../components/DirPicker';
 import { EventFeed } from '../components/EventFeed';
@@ -88,14 +91,6 @@ interface MainScreenProps {
   hasUnread: (sessionId: string) => boolean;
 }
 
-const STATUS_COLOR: Record<ConnectionStatus, string> = {
-  disconnected: '#6b7280',
-  connecting: '#fbbf24',
-  authenticating: '#fbbf24',
-  connected: '#4ade80',
-  error: '#f87171',
-};
-
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const m = Math.floor(seconds / 60);
@@ -164,6 +159,18 @@ export function MainScreen({
   onSearchSessions,
   hasUnread,
 }: MainScreenProps) {
+  const theme = useTheme();
+  const { isDark } = useThemeMode();
+  const statusColors = getStatusColors(theme, isDark);
+  const semantic = getSemanticColors(isDark);
+  const statusColorMap: Record<ConnectionStatus, string> = {
+    disconnected: statusColors.disconnected,
+    connecting: statusColors.connecting,
+    authenticating: statusColors.connecting,
+    connected: statusColors.connected,
+    error: statusColors.error,
+  };
+
   const AGENTS = ['claude', 'codex', 'gemini'] as const;
   type AgentName = typeof AGENTS[number];
 
@@ -207,7 +214,7 @@ export function MainScreen({
   useEffect(() => {
     if (sessionStatus === 'running') {
       setElapsed(0);
-      const id = setInterval(() => setElapsed(s => s + 1), 1000);
+      const id = setInterval(() => setElapsed((s: number) => s + 1), 1000);
       timerRef.current = id;
       return () => {
         clearInterval(id);
@@ -296,7 +303,7 @@ export function MainScreen({
   const isRunning = sessionStatus === 'running';
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <FileBrowserScreen
         visible={filesVisible}
         onClose={() => setFilesVisible(false)}
@@ -349,64 +356,44 @@ export function MainScreen({
       />
 
       {/* Top bar */}
-      <View style={styles.topBar}>
+      <Appbar.Header style={{ backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.outlineVariant }} elevated={false}>
         <View style={styles.statusRow}>
-          <View style={[styles.dot, { backgroundColor: STATUS_COLOR[status] }]} />
-          <Text style={styles.statusText}>{status}</Text>
-          {lastSeq > 0 && <Text style={styles.seqBadge}>seq {lastSeq}</Text>}
+          <View style={[styles.dot, { backgroundColor: statusColorMap[status] }]} />
+          <Text style={[styles.statusText, { color: theme.colors.onSurfaceVariant }]}>{status}</Text>
+          {lastSeq > 0 && <Text style={[styles.seqBadge, { color: theme.colors.outline }]}>seq {lastSeq}</Text>}
           {reconnecting && (
-            <View style={styles.reconnectBadge}>
-              <View style={styles.reconnectDot} />
-              <Text style={styles.reconnectText}>Reconnecting…</Text>
-            </View>
+            <Chip icon="sync" compact textStyle={{ fontSize: 11 }} style={{ backgroundColor: semantic.warningContainer }}>Reconnecting…</Chip>
           )}
           {reconnectedFlash && !reconnecting && (
-            <View style={styles.reconnectedBadge}>
-              <Text style={styles.reconnectedText}>Reconnected</Text>
-            </View>
+            <Chip icon="check-circle" compact textStyle={{ fontSize: 11 }} style={{ backgroundColor: semantic.successContainer }}>Reconnected</Chip>
           )}
           {isRunning && (
-            <View style={styles.sessionBadge}>
-              <Text style={styles.sessionBadgeText}>running · {formatElapsed(elapsed)}</Text>
-            </View>
+            <Chip icon="play-circle" compact textStyle={{ fontSize: 11 }} style={{ backgroundColor: semantic.successContainer }}>running · {formatElapsed(elapsed)}</Chip>
           )}
         </View>
-        <View style={styles.topBarActions}>
-          <Pressable onPress={() => setFilesVisible(true)} hitSlop={10} style={styles.gearBtn}>
-            <Text style={styles.gearText}>{'\u{1F4C1}'}</Text>
-          </Pressable>
-          <Pressable onPress={() => setSettingsVisible(true)} hitSlop={10} style={styles.gearBtn}>
-            <Text style={styles.gearText}>⚙</Text>
-          </Pressable>
-          {isRunning ? (
-            <Pressable onPress={() => onKill(activeSessionId ?? undefined)} style={styles.killBtn}>
-              <Text style={styles.killText}>Kill</Text>
-            </Pressable>
-          ) : (
-            <Pressable onPress={onDisconnect} style={styles.disconnectBtn}>
-              <Text style={styles.disconnectText}>Disconnect</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
+        <Appbar.Action icon="folder-outline" onPress={() => setFilesVisible(true)} />
+        <Appbar.Action icon="cog-outline" onPress={() => setSettingsVisible(true)} />
+        {isRunning ? (
+          <Button mode="text" textColor={theme.colors.error} onPress={() => onKill(activeSessionId ?? undefined)} compact>Kill</Button>
+        ) : (
+          <Button mode="text" textColor={theme.colors.onSurfaceVariant} onPress={onDisconnect} compact>Disconnect</Button>
+        )}
+      </Appbar.Header>
 
+      <View style={styles.contentWrapper}>
       {/* Session dashboard (multiple sessions) or pill switcher (single session) */}
       {sessions.length > 1 && (
-        <View style={styles.dashboardRow}>
-          <View style={styles.viewToggleRow}>
-            <Pressable
-              style={[styles.viewToggle, viewMode === 'list' && styles.viewToggleActive]}
-              onPress={() => { setViewMode('list'); AsyncStorage.setItem('navette_view_mode', 'list'); }}
-            >
-              <Text style={[styles.viewToggleText, viewMode === 'list' && styles.viewToggleTextActive]}>List</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.viewToggle, viewMode === 'board' && styles.viewToggleActive]}
-              onPress={() => { setViewMode('board'); AsyncStorage.setItem('navette_view_mode', 'board'); }}
-            >
-              <Text style={[styles.viewToggleText, viewMode === 'board' && styles.viewToggleTextActive]}>Board</Text>
-            </Pressable>
-          </View>
+        <View style={[styles.dashboardRow, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <SegmentedButtons
+            value={viewMode}
+            onValueChange={(v: string) => { setViewMode(v as 'list' | 'board'); AsyncStorage.setItem('navette_view_mode', v); }}
+            buttons={[
+              { value: 'list', label: 'List' },
+              { value: 'board', label: 'Board' },
+            ]}
+            style={{ alignSelf: 'flex-end', marginRight: 12, marginBottom: 6 }}
+            density="small"
+          />
           {viewMode === 'board' ? (
             <KanbanBoard
               sessions={sessions}
@@ -419,9 +406,9 @@ export function MainScreen({
               horizontal
               showsHorizontalScrollIndicator={false}
               data={sessions}
-              keyExtractor={s => s.session_id}
+              keyExtractor={(s: SessionInfo) => s.session_id}
               contentContainerStyle={styles.dashboardContent}
-              renderItem={({ item: s }) => (
+              renderItem={({ item: s }: { item: SessionInfo }) => (
                 <SessionCard
                   session={s}
                   isActive={s.session_id === activeSessionId}
@@ -438,22 +425,20 @@ export function MainScreen({
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.pillsRow}
+          style={[styles.pillsRow, { borderBottomColor: theme.colors.outlineVariant }]}
           contentContainerStyle={styles.pillsContent}
         >
-          {sessions.map(s => (
-            <Pressable
+          {sessions.map((s: SessionInfo) => (
+            <Chip
               key={s.session_id}
-              style={[styles.pill, s.session_id === activeSessionId && styles.pillActive]}
+              mode="outlined"
+              selected={s.session_id === activeSessionId}
               onPress={() => onSetActiveSessionId(s.session_id)}
+              compact
+              style={{ maxWidth: 160 }}
             >
-              <Text
-                numberOfLines={1}
-                style={[styles.pillText, s.session_id === activeSessionId && styles.pillTextActive]}
-              >
-                {s.container ?? s.prompt.split(' ').slice(0, 3).join(' ')}
-              </Text>
-            </Pressable>
+              {s.container ?? s.prompt.split(' ').slice(0, 3).join(' ')}
+            </Chip>
           ))}
         </ScrollView>
       )}
@@ -472,25 +457,27 @@ export function MainScreen({
 
       {/* New session input (only when idle) */}
       {!isRunning && (
-        <View style={styles.runPanel}>
+        <View style={[styles.runPanel, { borderTopColor: theme.colors.outlineVariant }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.agentRow} contentContainerStyle={styles.agentRowContent}>
             {AGENTS.map(a => (
-              <Pressable
+              <Chip
                 key={a}
-                style={[styles.agentPill, selectedAgent === a && styles.agentPillActive]}
+                mode="outlined"
+                selected={selectedAgent === a}
                 onPress={() => setSelectedAgent(a)}
+                compact
               >
-                <Text style={[styles.agentPillText, selectedAgent === a && styles.agentPillTextActive]}>{a}</Text>
-              </Pressable>
+                {a}
+              </Chip>
             ))}
           </ScrollView>
 
           <TextInput
-            style={[styles.input, styles.promptInput, isVoiceInterim && styles.promptInterim]}
+            style={[styles.input, styles.promptInput, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline, color: theme.colors.onSurface }, isVoiceInterim && { color: theme.colors.onSurfaceVariant }]}
             value={prompt}
             onChangeText={(t: string) => { setPrompt(t); promptRef.current = t; setIsVoiceInterim(false); }}
             placeholder="What should Claude do?"
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={theme.colors.onSurfaceVariant}
             multiline
             autoCorrect={false}
           />
@@ -498,75 +485,73 @@ export function MainScreen({
           <View style={styles.actionRow}>
             <VoiceButton onTranscript={handleVoiceTranscript} />
             <View style={styles.actionSpacer} />
-            <Pressable
-              style={[styles.runBtn, !prompt.trim() && styles.runBtnDisabled]}
-              onPress={handleRun}
-              disabled={!prompt.trim()}
-            >
-              <Text style={styles.runBtnText}>Run</Text>
-            </Pressable>
+            <Button mode="contained" onPress={handleRun} disabled={!prompt.trim()} style={{ minHeight: 44 }}>
+              Run
+            </Button>
           </View>
 
-          <Pressable style={styles.advancedHeader} onPress={() => setAdvancedOpen(o => !o)}>
-            <Text style={styles.advancedHeaderText}>Advanced {advancedOpen ? '▴' : '▾'}</Text>
+          <Pressable style={styles.advancedHeader} onPress={() => setAdvancedOpen((o: boolean) => !o)}>
+            <Text style={[styles.advancedHeaderText, { color: theme.colors.onSurfaceVariant }]}>Advanced {advancedOpen ? '▴' : '▾'}</Text>
           </Pressable>
 
           {advancedOpen && (
             <View style={styles.advancedBody}>
-              <Pressable onPress={() => setContainerPickerOpen(true)} style={styles.dirBtn}>
-                <Text style={styles.dirBtnText} numberOfLines={1}>
+              <Pressable onPress={() => setContainerPickerOpen(true)} style={[styles.dirBtn, { borderColor: theme.colors.outline, backgroundColor: theme.colors.surfaceVariant }]}>
+                <Text style={[styles.dirBtnText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
                   {container || '📦 Container (optional)'}
                 </Text>
               </Pressable>
 
-              <Pressable onPress={() => setDirPickerOpen(true)} style={styles.dirBtn}>
-                <Text style={styles.dirBtnText} numberOfLines={1}>
+              <Pressable onPress={() => setDirPickerOpen(true)} style={[styles.dirBtn, { borderColor: theme.colors.outline, backgroundColor: theme.colors.surfaceVariant }]}>
+                <Text style={[styles.dirBtnText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
                   {workDir || '📁 Work directory (optional)'}
                 </Text>
               </Pressable>
 
               <TextInput
-                style={[styles.input, styles.advancedInput]}
+                style={[styles.input, styles.advancedInput, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline, color: theme.colors.onSurface }]}
                 value={customCommand}
                 onChangeText={setCustomCommand}
                 placeholder="Custom command (overrides agent picker)"
-                placeholderTextColor="#6b7280"
+                placeholderTextColor={theme.colors.onSurfaceVariant}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
 
               <Pressable
                 style={[
-                  styles.injectSecretsToggle,
-                  injectSecrets && styles.injectSecretsToggleOn,
+                  styles.toggleRow,
+                  { borderColor: theme.colors.outline, backgroundColor: theme.colors.elevation.level1 },
+                  injectSecrets && { borderColor: semantic.onSuccessContainer, backgroundColor: semantic.successContainer },
                 ]}
-                onPress={() => setInjectSecrets(v => !v)}
+                onPress={() => setInjectSecrets((v: boolean) => !v)}
               >
-                <View style={[styles.skipPermsIndicator, injectSecrets && styles.injectSecretsIndicatorOn]} />
+                <View style={[styles.toggleDot, { backgroundColor: theme.colors.outlineVariant }, injectSecrets && { backgroundColor: semantic.success }]} />
                 <View style={styles.skipPermsLabelCol}>
-                  <Text style={[styles.skipPermsText, injectSecrets && styles.injectSecretsTextOn]}>
+                  <Text style={[{ color: theme.colors.onSurfaceVariant, fontSize: 12, fontWeight: '500' }, injectSecrets && { color: semantic.success, fontWeight: '700' }]}>
                     {injectSecrets ? `Inject secrets (${secrets.length})` : 'Inject secrets into session'}
                   </Text>
                   {injectSecrets && (
-                    <Text style={styles.injectSecretsHint}>Secrets will be available as env vars</Text>
+                    <Text style={{ color: semantic.success, fontSize: 10, marginTop: 2 }}>Secrets will be available as env vars</Text>
                   )}
                 </View>
               </Pressable>
 
               <Pressable
                 style={[
-                  styles.skipPermsToggle,
-                  skipPermsConfirming && styles.skipPermsToggleConfirming,
-                  dangerouslySkipPermissions && styles.skipPermsToggleOn,
+                  styles.toggleRow,
+                  { borderColor: theme.colors.outline, backgroundColor: theme.colors.elevation.level1 },
+                  skipPermsConfirming && { borderColor: semantic.onWarningContainer, backgroundColor: semantic.warningContainer },
+                  dangerouslySkipPermissions && { borderColor: theme.colors.error, backgroundColor: theme.colors.errorContainer },
                 ]}
                 onPress={handleSkipPermsToggle}
               >
-                <View style={[styles.skipPermsIndicator, dangerouslySkipPermissions && styles.skipPermsIndicatorOn]} />
+                <View style={[styles.toggleDot, { backgroundColor: theme.colors.outlineVariant }, dangerouslySkipPermissions && { backgroundColor: theme.colors.error }]} />
                 <View style={styles.skipPermsLabelCol}>
                   <Text style={[
-                    styles.skipPermsText,
-                    skipPermsConfirming && styles.skipPermsTextConfirming,
-                    dangerouslySkipPermissions && styles.skipPermsTextOn,
+                    { color: theme.colors.onSurfaceVariant, fontSize: 12, fontWeight: '500' },
+                    skipPermsConfirming && { color: semantic.warning, fontWeight: '600' },
+                    dangerouslySkipPermissions && { color: theme.colors.error, fontWeight: '700' },
                   ]}>
                     {dangerouslySkipPermissions
                       ? '⚡ dangerously-skip-permissions ON'
@@ -575,7 +560,7 @@ export function MainScreen({
                       : 'Dangerous: skip all approvals'}
                   </Text>
                   {dangerouslySkipPermissions && (
-                    <Text style={styles.skipPermsWarning}>Auto-approves every tool use</Text>
+                    <Text style={{ color: theme.colors.error, fontSize: 10, marginTop: 2 }}>Auto-approves every tool use</Text>
                   )}
                 </View>
               </Pressable>
@@ -600,12 +585,12 @@ export function MainScreen({
       )}
 
       {/* Event log drawer */}
-      <View style={styles.logDrawer}>
+      <View style={[styles.logDrawer, { borderTopColor: theme.colors.outlineVariant }]}>
         <Pressable
           style={styles.logHeader}
-          onPress={() => setLogExpanded(x => !x)}
+          onPress={() => setLogExpanded((x: boolean) => !x)}
         >
-          <Text style={styles.logLabel}>
+          <Text style={[styles.logLabel, { color: theme.colors.onSurfaceVariant }]}>
             Event log{events.length > 0 ? ` (${events.length})` : ''}
           </Text>
           <View style={styles.logHeaderRight}>
@@ -613,12 +598,12 @@ export function MainScreen({
               <Pressable
                 onPress={handleShareLog}
                 hitSlop={12}
-                style={styles.shareBtn}
+                style={[styles.shareBtn, { borderColor: theme.colors.outline }]}
               >
-                <Text style={styles.shareBtnText}>Share</Text>
+                <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 11, fontWeight: '600' }}>Share</Text>
               </Pressable>
             )}
-            <Text style={styles.logChevron}>{logExpanded ? '▼' : '▲'}</Text>
+            <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 10 }}>{logExpanded ? '▼' : '▲'}</Text>
           </View>
         </Pressable>
         {logExpanded && (
@@ -627,127 +612,31 @@ export function MainScreen({
           </View>
         )}
       </View>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1 },
+  contentWrapper: { flex: 1, maxWidth: 600, alignSelf: 'center', width: '100%' },
 
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
-  },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  statusText: { color: '#a1a1aa', fontSize: 13, fontWeight: '500' },
-  seqBadge: { color: '#71717a', fontSize: 11, marginLeft: 4 },
-  sessionBadge: {
-    backgroundColor: '#14280f',
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: '#1f4a18',
-  },
-  sessionBadgeText: { color: '#4ade80', fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
-  reconnectBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#1c1500',
-    borderRadius: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: '#3a2e00',
-  },
-  reconnectDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fbbf24' },
-  reconnectText: { color: '#fbbf24', fontSize: 11, fontWeight: '600' },
-  reconnectedBadge: {
-    backgroundColor: '#0f2818',
-    borderRadius: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: '#1f4a18',
-  },
-  reconnectedText: { color: '#4ade80', fontSize: 11, fontWeight: '600' },
-  topBarActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  gearBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  gearText: {
-    color: '#a1a1aa',
-    fontSize: 18,
-  },
-  disconnectBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  disconnectText: { color: '#a1a1aa', fontSize: 13 },
-  killBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#7f1d1d',
-    backgroundColor: '#1c0a0a',
-  },
-  killText: { color: '#f87171', fontSize: 13, fontWeight: '600' },
+  statusText: { fontSize: 13, fontWeight: '500' },
+  seqBadge: { fontSize: 11, marginLeft: 4 },
 
-  runPanel: {
-    borderTopWidth: 1,
-    borderTopColor: '#1a1a1a',
-    padding: 12,
-    gap: 8,
-  },
-  input: {
-    backgroundColor: '#0d0d0d',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    padding: 10,
-    color: '#f0f0f0',
-    fontSize: 14,
-  },
+  runPanel: { borderTopWidth: 1, padding: 12, gap: 8 },
+  input: { borderRadius: 8, borderWidth: 1, padding: 10, fontSize: 14 },
   promptInput: { minHeight: 52, maxHeight: 120, textAlignVertical: 'top' },
-  promptInterim: { color: '#94a3b8' },
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   actionSpacer: { flex: 1 },
-  containerInput: { fontSize: 13 },
-  runBtn: { backgroundColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 20, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
-  runBtnDisabled: { opacity: 0.35 },
-  runBtnText: { color: '#0a0a0a', fontWeight: '700', fontSize: 14 },
   agentRow: { flexGrow: 0 },
   agentRowContent: { flexDirection: 'row', gap: 6, paddingVertical: 4 },
-  agentPill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0d0d0d' },
-  agentPillActive: { borderColor: '#818cf8', backgroundColor: '#1e1b4b' },
-  agentPillText: { color: '#71717a', fontSize: 12, fontWeight: '500' },
-  agentPillTextActive: { color: '#a5b4fc', fontWeight: '700' },
-  dirBtn: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#0d0d0d',
-    padding: 10,
-  },
-  dirBtnText: { color: '#9ca3af', fontSize: 13, fontFamily: 'Menlo' },
-  skipPermsToggle: {
+  dirBtn: { borderRadius: 8, borderWidth: 1, padding: 10 },
+  dirBtnText: { fontSize: 13, fontFamily: 'Menlo' },
+
+  toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -755,92 +644,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#0d0d0d',
   },
-  skipPermsToggleOn: { borderColor: '#7f1d1d', backgroundColor: '#1c0a0a' },
-  skipPermsIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#333' },
-  skipPermsIndicatorOn: { backgroundColor: '#ef4444' },
-  skipPermsText: { color: '#9ca3af', fontSize: 12, fontWeight: '500' },
-  skipPermsTextOn: { color: '#f87171', fontWeight: '700' },
-  skipPermsToggleConfirming: { borderColor: '#78350f', backgroundColor: '#1c110a' },
-  skipPermsTextConfirming: { color: '#fbbf24', fontWeight: '600' },
+  toggleDot: { width: 8, height: 8, borderRadius: 4 },
   skipPermsLabelCol: { flex: 1 },
-  skipPermsWarning: { color: '#ef4444', fontSize: 10, marginTop: 2 },
 
-  injectSecretsToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#0d0d0d',
-  },
-  injectSecretsToggleOn: { borderColor: '#166534', backgroundColor: '#0a1a0a' },
-  injectSecretsIndicatorOn: { backgroundColor: '#4ade80' },
-  injectSecretsTextOn: { color: '#4ade80', fontWeight: '700' },
-  injectSecretsHint: { color: '#4ade80', fontSize: 10, marginTop: 2 },
+  advancedHeader: { paddingVertical: 6, paddingHorizontal: 2 },
+  advancedHeaderText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
+  advancedBody: { gap: 8 },
+  advancedInput: { fontSize: 13 },
 
-  advancedHeader: {
-    paddingVertical: 6,
-    paddingHorizontal: 2,
-  },
-  advancedHeaderText: {
-    color: '#52525b',
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  advancedBody: {
-    gap: 8,
-  },
-  advancedInput: {
-    fontSize: 13,
-  },
+  dashboardRow: { borderBottomWidth: 1, paddingVertical: 10 },
+  dashboardContent: { paddingHorizontal: 12 },
 
-  dashboardRow: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
-    paddingVertical: 10,
-  },
-  dashboardContent: {
-    paddingHorizontal: 12,
-  },
-  viewToggleRow: {
-    flexDirection: 'row',
-    alignSelf: 'flex-end',
-    marginRight: 12,
-    marginBottom: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    overflow: 'hidden',
-  },
-  viewToggle: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: '#0d0d0d',
-  },
-  viewToggleActive: {
-    backgroundColor: '#1a1a2e',
-  },
-  viewToggleText: {
-    color: '#555',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  viewToggleTextActive: {
-    color: '#93c5fd',
-  },
-
-  pillsRow: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
-    maxHeight: 44,
-  },
+  pillsRow: { borderBottomWidth: 1, maxHeight: 44 },
   pillsContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -848,26 +664,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     gap: 6,
   },
-  pill: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#0d0d0d',
-    maxWidth: 160,
-  },
-  pillActive: {
-    borderColor: '#4ade80',
-    backgroundColor: '#14280f',
-  },
-  pillText: { color: '#71717a', fontSize: 12, fontWeight: '500' },
-  pillTextActive: { color: '#4ade80', fontWeight: '700' },
 
-  logDrawer: {
-    borderTopWidth: 1,
-    borderTopColor: '#1a1a1a',
-  },
+  logDrawer: { borderTopWidth: 1 },
   logHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -875,22 +673,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  logLabel: {
-    color: '#71717a',
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
+  logLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   logHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  shareBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  shareBtnText: { color: '#9ca3af', fontSize: 11, fontWeight: '600' },
-  logChevron: { color: '#71717a', fontSize: 10 },
+  shareBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1 },
   logBody: { maxHeight: 320 },
 });

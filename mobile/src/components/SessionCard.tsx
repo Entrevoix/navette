@@ -3,6 +3,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { SessionInfo } from '../types';
 
 export interface SessionCardProps {
@@ -41,13 +42,8 @@ function formatElapsed(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
-function statusDotColor(hasPendingApproval: boolean, isActive: boolean): string {
-  if (hasPendingApproval) return '#fbbf24'; // yellow — waiting approval
-  if (isActive) return '#4ade80';           // green — running
-  return '#6b7280';                          // gray — idle/done
-}
-
 export function SessionCard({ session, isActive, onSelect, hasPendingApproval = false, hasUnread = false, unreadCount = 0 }: SessionCardProps) {
+  const theme = useTheme();
   const [elapsed, setElapsed] = useState(() =>
     Math.floor((Date.now() - session.started_at * 1000) / 1000)
   );
@@ -74,11 +70,15 @@ export function SessionCard({ session, isActive, onSelect, hasPendingApproval = 
     pulseAnim.setValue(1);
   }, [hasUnread, isActive, pulseAnim]);
 
+  // Determine status dot color using theme tokens
+  let dotColor = theme.colors.onSurfaceVariant;
+  if (hasPendingApproval) dotColor = theme.colors.tertiary;
+  else if (isActive) dotColor = theme.colors.primary;
+
   const agentLabel = detectAgent(session);
   const promptPreview = session.prompt.length > 60
     ? session.prompt.slice(0, 60) + '…'
     : session.prompt;
-  const dotColor = statusDotColor(hasPendingApproval, isActive);
   const showBadge = hasUnread && !isActive;
 
   const inputTok = session.input_tokens ?? 0;
@@ -87,35 +87,39 @@ export function SessionCard({ session, isActive, onSelect, hasPendingApproval = 
 
   return (
     <Pressable
-      style={[styles.card, isActive && styles.cardActive]}
+      style={[
+        styles.card,
+        { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant },
+        isActive && { borderColor: theme.colors.primary },
+      ]}
       onPress={() => onSelect(session.session_id)}
     >
       {showBadge && (
-        <Animated.View style={[styles.badge, { opacity: pulseAnim }]}>
-          <Text style={styles.badgeText}>{unreadCount > 1 ? String(unreadCount) : ''}</Text>
+        <Animated.View style={[styles.badge, { backgroundColor: theme.colors.error, opacity: pulseAnim }]}>
+          <Text style={[styles.badgeText, { color: theme.colors.onError }]}>{unreadCount > 1 ? String(unreadCount) : ''}</Text>
         </Animated.View>
       )}
       <View style={styles.header}>
-        <Text style={styles.agentLabel}>{agentLabel}</Text>
+        <Text style={[styles.agentLabel, { color: theme.colors.primary }]}>{agentLabel}</Text>
         <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
       </View>
 
-      <Text style={styles.prompt} numberOfLines={2}>
+      <Text style={[styles.prompt, { color: theme.colors.onSurface }]} numberOfLines={2}>
         {promptPreview}
       </Text>
 
       <View style={styles.footer}>
         {session.container ? (
-          <Text style={styles.container} numberOfLines={1}>
+          <Text style={[styles.container, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
             {session.container}
           </Text>
         ) : null}
-        <Text style={styles.elapsed}>{formatElapsed(Math.max(0, elapsed))}</Text>
+        <Text style={[styles.elapsed, { color: theme.colors.onSurfaceVariant }]}>{formatElapsed(Math.max(0, elapsed))}</Text>
       </View>
 
       {showTokens ? (
-        <Text style={styles.tokens}>
-          {`\u2191${formatTokens(inputTok)} \u2193${formatTokens(outputTok)}`}
+        <Text style={[styles.tokens, { color: theme.colors.onSurfaceVariant }]}>
+          {`↑${formatTokens(inputTok)} ↓${formatTokens(outputTok)}`}
         </Text>
       ) : null}
     </Pressable>
@@ -125,15 +129,10 @@ export function SessionCard({ session, isActive, onSelect, hasPendingApproval = 
 const styles = StyleSheet.create({
   card: {
     width: 180,
-    backgroundColor: '#1e1e2e',
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#2a2a3e',
     marginRight: 10,
-  },
-  cardActive: {
-    borderColor: '#4a9eff',
   },
   header: {
     flexDirection: 'row',
@@ -142,7 +141,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   agentLabel: {
-    color: '#7b8cde',
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -154,7 +152,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   prompt: {
-    color: '#f0f0f0',
     fontSize: 12,
     lineHeight: 17,
     marginBottom: 8,
@@ -166,19 +163,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   container: {
-    color: '#6b7280',
     fontSize: 11,
     fontFamily: 'Menlo',
     flex: 1,
     marginRight: 6,
   },
   elapsed: {
-    color: '#6b7280',
     fontSize: 11,
     fontFamily: 'Menlo',
   },
   tokens: {
-    color: '#4b5563',
     fontSize: 10,
     fontFamily: 'Menlo',
     marginTop: 4,
@@ -187,7 +181,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -4,
-    backgroundColor: '#ef4444',
     borderRadius: 9,
     minWidth: 18,
     height: 18,
@@ -197,7 +190,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   badgeText: {
-    color: '#fff',
     fontSize: 10,
     fontWeight: '700',
   },

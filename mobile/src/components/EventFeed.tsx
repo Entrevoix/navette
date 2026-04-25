@@ -3,7 +3,11 @@
 
 import React, { useState } from 'react';
 import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
+import { useThemeMode } from '../ThemeContext';
+import { getEventTypeColors } from '../theme';
 import { EventFrame, AssistantEvent, TextBlock } from '../types';
+import type { EventTypeColors } from '../theme';
 
 interface EventFeedProps {
   events: EventFrame[];
@@ -16,7 +20,7 @@ interface EventSummary {
   fullContent: string;
 }
 
-function eventSummary(frame: EventFrame): EventSummary {
+function eventSummary(frame: EventFrame, colors: EventTypeColors): EventSummary {
   const ev = frame.event;
   switch (ev.type) {
     case 'assistant': {
@@ -26,35 +30,38 @@ function eventSummary(frame: EventFrame): EventSummary {
       if (tools.length > 0) {
         const names = tools.map((t: { type: string }) => (t as { type: 'tool_use'; name: string }).name).join(', ');
         const fullTools = tools.map((t: unknown) => JSON.stringify(t, null, 2)).join('\n\n');
-        return { label: 'tool call', detail: names, color: '#93c5fd', fullContent: fullTools };
+        return { label: 'tool call', detail: names, color: colors.toolCall, fullContent: fullTools };
       }
       const fullText = text?.text ?? '';
-      return { label: 'assistant', detail: fullText.slice(0, 120), color: '#a3e635', fullContent: fullText };
+      return { label: 'assistant', detail: fullText.slice(0, 120), color: colors.assistant, fullContent: fullText };
     }
     case 'tool_result': {
       const raw = String((ev as { type: string; content?: unknown }).content ?? '');
       const fullContent = raw.length > 50_000 ? raw.slice(0, 50_000) + '\n…[truncated]' : raw;
-      return { label: 'result', detail: raw.slice(0, 120), color: '#fb923c', fullContent };
+      return { label: 'result', detail: raw.slice(0, 120), color: colors.result, fullContent };
     }
     case 'system': {
       const subtype = (ev as { type: string; subtype?: string }).subtype ?? '';
       const full = JSON.stringify(ev, null, 2);
-      return { label: 'system', detail: subtype, color: '#6b7280', fullContent: full };
+      return { label: 'system', detail: subtype, color: colors.system, fullContent: full };
     }
     case 'result': {
       const full = JSON.stringify(ev, null, 2);
-      return { label: 'done', detail: '', color: '#4ade80', fullContent: full };
+      return { label: 'done', detail: '', color: colors.done, fullContent: full };
     }
     default: {
       const full = JSON.stringify(ev, null, 2);
-      return { label: ev.type, detail: '', color: '#6b7280', fullContent: full };
+      return { label: ev.type, detail: '', color: colors.system, fullContent: full };
     }
   }
 }
 
 function EventRow({ frame }: { frame: EventFrame }) {
+  const theme = useTheme();
+  const { isDark } = useThemeMode();
   const [expanded, setExpanded] = useState(false);
-  const { label, detail, color, fullContent } = eventSummary(frame);
+  const eventColors = getEventTypeColors(isDark);
+  const { label, detail, color, fullContent } = eventSummary(frame, eventColors);
   const time = new Date(frame.ts * 1000).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
@@ -62,20 +69,20 @@ function EventRow({ frame }: { frame: EventFrame }) {
   });
 
   return (
-    <Pressable onPress={() => setExpanded(x => !x)} style={styles.row}>
-      <Text style={styles.seq}>#{frame.seq}</Text>
+    <Pressable onPress={() => setExpanded(x => !x)} style={[styles.row, { borderBottomColor: theme.colors.outlineVariant }]}>
+      <Text style={[styles.seq, { color: theme.colors.onSurfaceVariant }]}>#{frame.seq}</Text>
       <View style={styles.body}>
         <View style={styles.labelRow}>
           <View style={[styles.pill, { backgroundColor: color + '22', borderColor: color + '55' }]}>
             <Text style={[styles.label, { color }]}>{label}</Text>
           </View>
-          <Text style={styles.time}>{time}</Text>
+          <Text style={[styles.time, { color: theme.colors.onSurfaceVariant }]}>{time}</Text>
         </View>
         {!expanded && detail.length > 0 && (
-          <Text style={styles.detail} numberOfLines={2}>{detail}</Text>
+          <Text style={[styles.detail, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>{detail}</Text>
         )}
         {expanded && fullContent.length > 0 && (
-          <Text selectable style={styles.fullContent}>{fullContent}</Text>
+          <Text selectable style={[styles.fullContent, { color: theme.colors.onSurface }]}>{fullContent}</Text>
         )}
       </View>
     </Pressable>
@@ -83,10 +90,11 @@ function EventRow({ frame }: { frame: EventFrame }) {
 }
 
 export function EventFeed({ events }: EventFeedProps) {
+  const theme = useTheme();
   if (events.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>Waiting for events…</Text>
+        <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>Waiting for events…</Text>
       </View>
     );
   }
@@ -113,7 +121,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    color: '#444',
     fontSize: 14,
   },
   row: {
@@ -121,10 +128,8 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
   },
   seq: {
-    color: '#333',
     fontSize: 11,
     width: 36,
     paddingTop: 3,
@@ -151,16 +156,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   time: {
-    color: '#3a3a3a',
     fontSize: 11,
   },
   detail: {
-    color: '#777',
     fontSize: 13,
     lineHeight: 18,
   },
   fullContent: {
-    color: '#bbb',
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     fontSize: 12,
     lineHeight: 18,

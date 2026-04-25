@@ -13,6 +13,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Button, useTheme } from 'react-native-paper';
 import type { SkillInfo } from '../hooks/useNavettedWS';
 
 interface SkillsScreenProps {
@@ -24,6 +25,7 @@ interface SkillsScreenProps {
 }
 
 export function SkillsScreen({ visible, onClose, skills, onRefresh, onRun }: SkillsScreenProps) {
+  const theme = useTheme();
   const [search, setSearch] = useState('');
   const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(null);
 
@@ -61,26 +63,22 @@ export function SkillsScreen({ visible, onClose, skills, onRefresh, onRun }: Ski
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Installed Skills</Text>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>Installed Skills</Text>
           <View style={styles.headerRight}>
-            <Pressable onPress={onRefresh} hitSlop={12} style={styles.refreshBtn}>
-              <Text style={styles.refreshText}>Refresh</Text>
-            </Pressable>
-            <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-              <Text style={styles.closeText}>Done</Text>
-            </Pressable>
+            <Button mode="text" onPress={onRefresh}>Refresh</Button>
+            <Button mode="text" onPress={onClose}>Done</Button>
           </View>
         </View>
 
         <View style={styles.searchRow}>
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
             value={search}
             onChangeText={setSearch}
             placeholder="Search skills..."
-            placeholderTextColor="#52525b"
+            placeholderTextColor={theme.colors.onSurfaceVariant}
             autoCorrect={false}
             autoCapitalize="none"
           />
@@ -89,11 +87,11 @@ export function SkillsScreen({ visible, onClose, skills, onRefresh, onRun }: Ski
         {filtered.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>📂</Text>
-            <Text style={styles.emptyText}>
+            <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>
               {search ? 'No skills match your search' : 'No skills found in ~/.claude/skills/'}
             </Text>
             {!search && (
-              <Text style={styles.emptySubtext}>
+              <Text style={[styles.emptySubtext, { color: theme.colors.onSurfaceVariant }]}>
                 Skills are directories installed under ~/.claude/skills/ on the remote host.
               </Text>
             )}
@@ -105,29 +103,29 @@ export function SkillsScreen({ visible, onClose, skills, onRefresh, onRun }: Ski
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => (
               <Pressable
-                style={styles.card}
+                style={[styles.card, { backgroundColor: theme.colors.surfaceVariant }]}
                 onPress={() => setSelectedSkill(item)}
               >
-                <View style={styles.cardIcon}>
+                <View style={[styles.cardIcon, { backgroundColor: theme.colors.surface }]}>
                   <Text style={styles.cardIconText}>📦</Text>
                 </View>
                 <View style={styles.cardBody}>
-                  <Text style={styles.skillName}>{item.name}</Text>
+                  <Text style={[styles.skillName, { color: theme.colors.onSurface }]}>{item.name}</Text>
                   {item.description ? (
-                    <Text style={styles.skillDescription} numberOfLines={2}>
+                    <Text style={[styles.skillDescription, { color: theme.colors.onSurfaceVariant }]} numberOfLines={2}>
                       {item.description}
                     </Text>
                   ) : (
-                    <Text style={styles.skillDescriptionEmpty}>No description</Text>
+                    <Text style={[styles.skillDescriptionEmpty, { color: theme.colors.onSurfaceVariant }]}>No description</Text>
                   )}
                 </View>
-                <Pressable
+                <Button
+                  mode="contained-tonal"
+                  compact
                   onPress={() => handleRun(item)}
-                  hitSlop={8}
-                  style={({ pressed }) => [styles.runBtn, pressed && styles.runBtnPressed]}
                 >
-                  <Text style={styles.runBtnText}>Run</Text>
-                </Pressable>
+                  Run
+                </Button>
               </Pressable>
             )}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -142,31 +140,34 @@ export function SkillsScreen({ visible, onClose, skills, onRefresh, onRun }: Ski
           onRequestClose={() => setSelectedSkill(null)}
         >
           <Pressable style={styles.detailOverlay} onPress={() => setSelectedSkill(null)}>
-            <View style={styles.detailCard} onStartShouldSetResponder={() => true}>
-              <Text style={styles.detailName}>{selectedSkill?.name}</Text>
-              <Text style={styles.detailDescription}>
+            <View style={[styles.detailCard, { backgroundColor: theme.colors.surfaceVariant }]} onStartShouldSetResponder={() => true}>
+              <Text style={[styles.detailName, { color: theme.colors.onSurface }]}>{selectedSkill?.name}</Text>
+              <Text style={[styles.detailDescription, { color: theme.colors.onSurfaceVariant }]}>
                 {selectedSkill?.description || 'No description available.'}
               </Text>
               <View style={styles.detailActions}>
-                <Pressable
-                  style={styles.detailRunBtn}
+                <Button
+                  mode="contained-tonal"
+                  style={{ flex: 1 }}
                   onPress={() => selectedSkill && handleRun(selectedSkill)}
                 >
-                  <Text style={styles.detailRunBtnText}>Run Skill</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.detailWebBtn}
+                  Run Skill
+                </Button>
+                <Button
+                  mode="outlined"
+                  style={{ flex: 1 }}
                   onPress={() => selectedSkill && handleWebSearch(selectedSkill)}
                 >
-                  <Text style={styles.detailWebBtnText}>Search the web</Text>
-                </Pressable>
+                  Search the web
+                </Button>
               </View>
-              <Pressable
-                style={styles.detailCloseBtn}
+              <Button
+                mode="text"
                 onPress={() => setSelectedSkill(null)}
+                style={styles.detailCloseBtn}
               >
-                <Text style={styles.detailCloseBtnText}>Close</Text>
-              </Pressable>
+                Close
+              </Button>
             </View>
           </Pressable>
         </Modal>
@@ -176,7 +177,7 @@ export function SkillsScreen({ visible, onClose, skills, onRefresh, onRun }: Ski
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f1a' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -185,30 +186,21 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a2e',
   },
-  title: { color: '#f0f0f0', fontSize: 18, fontWeight: '700' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  refreshBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  refreshText: { color: '#818cf8', fontSize: 15, fontWeight: '600' },
-  closeBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  closeText: { color: '#4ade80', fontSize: 15, fontWeight: '600' },
+  title: { fontSize: 18, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   searchRow: { paddingHorizontal: 16, paddingVertical: 10 },
   searchInput: {
-    backgroundColor: '#1e1e2e',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2a2a3e',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#f0f0f0',
     fontSize: 14,
   },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#1e1e2e',
     borderRadius: 10,
     padding: 16,
     gap: 12,
@@ -217,24 +209,14 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#2a2a3e',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardIconText: { fontSize: 18 },
   cardBody: { flex: 1, gap: 4 },
-  skillName: { color: '#f0f0f0', fontSize: 15, fontWeight: '700', fontFamily: 'Menlo' },
-  skillDescription: { color: '#9ca3af', fontSize: 13, lineHeight: 18 },
-  skillDescriptionEmpty: { color: '#3f3f5f', fontSize: 13, fontStyle: 'italic' },
-  runBtn: {
-    alignSelf: 'center',
-    backgroundColor: '#4f46e5',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  runBtnPressed: { opacity: 0.7 },
-  runBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  skillName: { fontSize: 15, fontWeight: '700', fontFamily: 'Menlo' },
+  skillDescription: { fontSize: 13, lineHeight: 18 },
+  skillDescriptionEmpty: { fontSize: 13, fontStyle: 'italic' },
   separator: { height: 8 },
   emptyState: {
     flex: 1,
@@ -244,8 +226,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyIcon: { fontSize: 48, marginBottom: 8 },
-  emptyText: { color: '#9ca3af', fontSize: 15, fontWeight: '600', textAlign: 'center' },
-  emptySubtext: { color: '#555', fontSize: 13, lineHeight: 18, textAlign: 'center' },
+  emptyText: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
+  emptySubtext: { fontSize: 13, lineHeight: 18, textAlign: 'center' },
   detailOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
@@ -254,32 +236,14 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   detailCard: {
-    backgroundColor: '#1e1e2e',
     borderRadius: 14,
     padding: 24,
     width: '100%',
     maxWidth: 400,
     gap: 16,
   },
-  detailName: { color: '#f0f0f0', fontSize: 18, fontWeight: '700', fontFamily: 'Menlo' },
-  detailDescription: { color: '#9ca3af', fontSize: 14, lineHeight: 20 },
+  detailName: { fontSize: 18, fontWeight: '700', fontFamily: 'Menlo' },
+  detailDescription: { fontSize: 14, lineHeight: 20 },
   detailActions: { flexDirection: 'row', gap: 10 },
-  detailRunBtn: {
-    flex: 1,
-    backgroundColor: '#4f46e5',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  detailRunBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  detailWebBtn: {
-    flex: 1,
-    backgroundColor: '#2a2a3e',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  detailWebBtnText: { color: '#818cf8', fontSize: 14, fontWeight: '600' },
-  detailCloseBtn: { alignItems: 'center', paddingVertical: 8 },
-  detailCloseBtnText: { color: '#52525b', fontSize: 13 },
+  detailCloseBtn: { alignSelf: 'center' },
 });

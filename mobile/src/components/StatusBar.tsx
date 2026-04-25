@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { ContextMeter } from './ContextMeter';
 
 interface StatusBarProps {
@@ -26,12 +27,13 @@ export function StatusBar({
   sessionRunning,
   onContainerPress,
 }: StatusBarProps) {
+  const theme = useTheme();
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.outlineVariant }]}>
       <View style={styles.left}>
-        <Text style={styles.agentLabel}>{agentName}</Text>
-        <Pressable onPress={onContainerPress} hitSlop={6} style={styles.containerChip}>
-          <Text style={styles.containerText}>{containerName || 'host'}</Text>
+        <Text style={[styles.agentLabel, { color: theme.colors.primary }]}>{agentName}</Text>
+        <Pressable onPress={onContainerPress} hitSlop={6} style={[styles.containerChip, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.containerText, { color: theme.colors.onSurfaceVariant }]}>{containerName || 'host'}</Text>
         </Pressable>
       </View>
       {sessionRunning ? (
@@ -42,7 +44,7 @@ export function StatusBar({
           maxTokens={maxTokens}
         />
       ) : (
-        <Text style={styles.idleLabel}>idle</Text>
+        <Text style={[styles.idleLabel, { color: theme.colors.onSurfaceVariant }]}>idle</Text>
       )}
     </View>
   );
@@ -56,8 +58,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e1e1e',
-    backgroundColor: '#0a0a0a',
   },
   left: {
     flexDirection: 'row',
@@ -65,25 +65,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   agentLabel: {
-    color: '#93c5fd',
     fontSize: 12,
     fontWeight: '700',
   },
   containerChip: {
-    backgroundColor: '#1a1a2e',
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
   },
   containerText: {
-    color: '#a5b4fc',
     fontSize: 11,
     fontWeight: '500',
   },
   idleLabel: {
-    color: '#52525b',
     fontSize: 11,
     fontWeight: '600',
   },

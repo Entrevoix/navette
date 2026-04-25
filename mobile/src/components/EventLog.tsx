@@ -12,6 +12,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { DiffView } from './DiffView';
 import { toolInputToDiff } from '../utils/diff';
 import {
@@ -57,33 +58,34 @@ interface ToolCallRowProps {
 }
 
 export function ToolCallRow({ toolUseId: _toolUseId, name, input, resultContent }: ToolCallRowProps) {
+  const theme = useTheme();
   const [expanded, setExpanded] = useState(false);
   const summary = summarizeInput(name, input);
   const diffLines = toolInputToDiff(name, input);
 
   return (
-    <View style={tcStyles.container}>
+    <View style={[tcStyles.container, { borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surface }]}>
       <Pressable onPress={() => setExpanded(x => !x)} style={tcStyles.header}>
         <View style={tcStyles.nameRow}>
-          <Text style={[tcStyles.status, resultContent !== undefined ? tcStyles.statusDone : tcStyles.statusPending]}>
+          <Text style={[tcStyles.status, resultContent !== undefined ? { color: theme.colors.primary } : { color: theme.colors.onSurfaceVariant }]}>
             {resultContent !== undefined ? '✓' : '·'}
           </Text>
-          <Text style={tcStyles.toolName}>{name}</Text>
+          <Text style={[tcStyles.toolName, { color: theme.colors.primary }]}>{name}</Text>
           {!expanded && summary.length > 0 && (
-            <Text style={tcStyles.summary} numberOfLines={1}>{summary}</Text>
+            <Text style={[tcStyles.summary, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>{summary}</Text>
           )}
         </View>
-        <Text style={tcStyles.chevron}>{expanded ? '▲' : '▼'}</Text>
+        <Text style={[tcStyles.chevron, { color: theme.colors.onSurfaceVariant }]}>{expanded ? '▲' : '▼'}</Text>
       </Pressable>
       {expanded && (
-        <View style={tcStyles.body}>
+        <View style={[tcStyles.body, { borderTopColor: theme.colors.outlineVariant }]}>
           {diffLines ? <DiffView lines={diffLines} /> : (
-            <Text selectable style={tcStyles.code}>{JSON.stringify(input, null, 2)}</Text>
+            <Text selectable style={[tcStyles.code, { color: theme.colors.onSurface }]}>{JSON.stringify(input, null, 2)}</Text>
           )}
           {resultContent !== undefined && (
             <>
-              <View style={tcStyles.divider} />
-              <Text selectable style={tcStyles.result}>
+              <View style={[tcStyles.divider, { backgroundColor: theme.colors.outlineVariant }]} />
+              <Text selectable style={[tcStyles.result, { color: theme.colors.tertiary }]}>
                 {resultContent.length > 4000 ? resultContent.slice(0, 4000) + '\n…' : resultContent}
               </Text>
             </>
@@ -98,8 +100,6 @@ const tcStyles = StyleSheet.create({
   container: {
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#222',
-    backgroundColor: '#0d0d0d',
     overflow: 'hidden',
     marginVertical: 2,
   },
@@ -112,32 +112,26 @@ const tcStyles = StyleSheet.create({
   },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
   status: { fontSize: 12, width: 14 },
-  statusDone: { color: '#4ade80' },
-  statusPending: { color: '#71717a' },
-  toolName: { color: '#93c5fd', fontSize: 13, fontWeight: '600' },
+  toolName: { fontSize: 13, fontWeight: '600' },
   summary: {
-    color: '#7e8ea0',
     fontSize: 12,
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     flex: 1,
   },
-  chevron: { color: '#6b7280', fontSize: 10, marginLeft: 8 },
+  chevron: { fontSize: 10, marginLeft: 8 },
   body: {
     paddingHorizontal: 12,
     paddingBottom: 10,
     borderTopWidth: 1,
-    borderTopColor: '#1a1a1a',
   },
   code: {
-    color: '#b8bfca',
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     fontSize: 11,
     lineHeight: 17,
     paddingTop: 8,
   },
-  divider: { height: 1, backgroundColor: '#1a1a1a', marginVertical: 8 },
+  divider: { height: 1, marginVertical: 8 },
   result: {
-    color: '#fb923c',
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     fontSize: 11,
     lineHeight: 17,
@@ -187,10 +181,12 @@ interface EventLogProps {
 }
 
 export function EventLog({ events, onClear }: EventLogProps) {
+  const theme = useTheme();
+
   if (events.length === 0) {
     return (
       <View style={elStyles.empty}>
-        <Text style={elStyles.emptyText}>Loading events…</Text>
+        <Text style={[elStyles.emptyText, { color: theme.colors.onSurfaceVariant }]}>Loading events…</Text>
       </View>
     );
   }
@@ -218,15 +214,15 @@ export function EventLog({ events, onClear }: EventLogProps) {
       const s = ev as { type: string; prompt?: string };
       items.push(
         <View key={`ss-${frame.seq}`} style={elStyles.dividerRow}>
-          <View style={elStyles.dividerLine} />
-          <Text style={elStyles.dividerLabel}>session</Text>
-          <View style={elStyles.dividerLine} />
+          <View style={[elStyles.dividerLine, { backgroundColor: theme.colors.outlineVariant }]} />
+          <Text style={[elStyles.dividerLabel, { color: theme.colors.onSurfaceVariant }]}>session</Text>
+          <View style={[elStyles.dividerLine, { backgroundColor: theme.colors.outlineVariant }]} />
         </View>
       );
       if (s.prompt) {
         items.push(
-          <View key={`up-${frame.seq}`} style={elStyles.userBubble}>
-            <Text selectable style={elStyles.userText}>{s.prompt}</Text>
+          <View key={`up-${frame.seq}`} style={[elStyles.userBubble, { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary }]}>
+            <Text selectable style={[elStyles.userText, { color: theme.colors.onPrimaryContainer }]}>{s.prompt}</Text>
           </View>
         );
       }
@@ -237,11 +233,11 @@ export function EventLog({ events, onClear }: EventLogProps) {
       const e = ev as { type: string; ok: boolean };
       items.push(
         <View key={`se-${frame.seq}`} style={elStyles.dividerRow}>
-          <View style={elStyles.dividerLine} />
-          <Text style={[elStyles.dividerLabel, e.ok ? elStyles.doneLabel : elStyles.failLabel]}>
+          <View style={[elStyles.dividerLine, { backgroundColor: theme.colors.outlineVariant }]} />
+          <Text style={[elStyles.dividerLabel, e.ok ? { color: theme.colors.primary } : { color: theme.colors.error }]}>
             {e.ok ? 'done' : 'failed'}
           </Text>
-          <View style={elStyles.dividerLine} />
+          <View style={[elStyles.dividerLine, { backgroundColor: theme.colors.outlineVariant }]} />
         </View>
       );
       continue;
@@ -255,7 +251,7 @@ export function EventLog({ events, onClear }: EventLogProps) {
           const tb = block as TextBlock;
           if (!tb.text.trim()) continue;
           items.push(
-            <Text key={`t-${frame.seq}-${i}`} selectable style={elStyles.assistantText}>
+            <Text key={`t-${frame.seq}-${i}`} selectable style={[elStyles.assistantText, { color: theme.colors.onSurface }]}>
               {tb.text}
             </Text>
           );
@@ -278,13 +274,13 @@ export function EventLog({ events, onClear }: EventLogProps) {
 
   return (
     <View style={elStyles.wrapper}>
-      <View style={elStyles.actionBar}>
-        <Pressable onPress={handleShare} style={elStyles.actionBtn}>
-          <Text style={elStyles.actionText}>Share</Text>
+      <View style={[elStyles.actionBar, { borderBottomColor: theme.colors.outlineVariant }]}>
+        <Pressable onPress={handleShare} style={[elStyles.actionBtn, { borderColor: theme.colors.outlineVariant }]}>
+          <Text style={[elStyles.actionText, { color: theme.colors.onSurfaceVariant }]}>Share</Text>
         </Pressable>
         {onClear && (
-          <Pressable onPress={handleClear} style={elStyles.actionBtn}>
-            <Text style={[elStyles.actionText, elStyles.clearText]}>Clear</Text>
+          <Pressable onPress={handleClear} style={[elStyles.actionBtn, { borderColor: theme.colors.outlineVariant }]}>
+            <Text style={[elStyles.actionText, { color: theme.colors.error }]}>Clear</Text>
           </Pressable>
         )}
       </View>
@@ -303,49 +299,40 @@ const elStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e1e1e',
   },
   actionBtn: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
   },
-  actionText: { color: '#9ca3af', fontSize: 12, fontWeight: '600' },
-  clearText: { color: '#f87171' },
+  actionText: { fontSize: 12, fontWeight: '600' },
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24, gap: 10 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  emptyText: { color: '#71717a', fontSize: 13 },
+  emptyText: { fontSize: 13 },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginVertical: 4,
   },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#1e1e1e' },
+  dividerLine: { flex: 1, height: 1 },
   dividerLabel: {
-    color: '#6b7280',
     fontSize: 10,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
-  doneLabel: { color: '#4ade80' },
-  failLabel: { color: '#f87171' },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#0f172a',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1e3a5f',
     padding: 12,
     maxWidth: '88%',
   },
-  userText: { color: '#93c5fd', fontSize: 14, lineHeight: 20 },
+  userText: { fontSize: 14, lineHeight: 20 },
   assistantText: {
-    color: '#d4d4d8',
     fontSize: 14,
     lineHeight: 22,
   },

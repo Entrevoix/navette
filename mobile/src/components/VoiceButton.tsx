@@ -12,6 +12,7 @@ import {
 } from 'expo-speech-recognition';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 
 // Tap-to-toggle max recording — Soda starts to misbehave past a few minutes; cap to 3.
 const MAX_RECORDING_MS = 3 * 60 * 1000;
@@ -240,6 +241,7 @@ interface VoiceButtonProps {
 type ErrAction = 'none' | 'no-service' | 'permission' | 'lang-unavailable' | 'diag';
 
 export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
+  const theme = useTheme();
   const [isListening, setIsListening] = useState(false);
   const [errMsg, setErrMsg] = useState('');
   const [errPersist, setErrPersist] = useState(false);
@@ -1036,20 +1038,20 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         animationType="slide"
         onRequestClose={() => setPickerVisible(false)}
       >
-        <Pressable style={styles.overlay} onPress={() => setPickerVisible(false)}>
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Choose voice recognizer</Text>
-            <Text style={styles.sheetSub}>Multiple speech services found on this device</Text>
+        <Pressable style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.7)' }]} onPress={() => setPickerVisible(false)}>
+          <View style={[styles.sheet, { backgroundColor: theme.colors.surface }]}>
+            <Text style={[styles.sheetTitle, { color: theme.colors.onSurface }]}>Choose voice recognizer</Text>
+            <Text style={[styles.sheetSub, { color: theme.colors.onSurfaceVariant }]}>Multiple speech services found on this device</Text>
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
               {pickerOptions.map(opt => (
-                <Pressable key={opt.pkg} style={[styles.sheetOption, { marginBottom: 12 }]} onPress={() => handlePickRecognizer(opt)}>
-                  <Text style={styles.sheetOptionLabel}>{opt.label}</Text>
-                  <Text style={styles.sheetOptionPkg}>{opt.pkg}</Text>
+                <Pressable key={opt.pkg} style={[styles.sheetOption, { marginBottom: 12, backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={() => handlePickRecognizer(opt)}>
+                  <Text style={[styles.sheetOptionLabel, { color: theme.colors.onSurface }]}>{opt.label}</Text>
+                  <Text style={[styles.sheetOptionPkg, { color: theme.colors.onSurfaceVariant }]}>{opt.pkg}</Text>
                 </Pressable>
               ))}
             </ScrollView>
-            <Pressable style={styles.sheetWhisper} onPress={handlePickWhisper}>
-              <Text style={styles.sheetWhisperText}>Use Whisper API instead →</Text>
+            <Pressable style={[styles.sheetWhisper, { borderColor: theme.colors.primary }]} onPress={handlePickWhisper}>
+              <Text style={[styles.sheetWhisperText, { color: theme.colors.primary }]}>Use Whisper API instead →</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -1063,105 +1065,105 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         onRequestClose={dismissErr}
       >
         <Pressable
-          style={styles.overlay}
+          style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.7)' }]}
           onPress={errPersist ? undefined : dismissErr}
         >
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.errSheetTitle}>
+          <Pressable style={[styles.sheet, { backgroundColor: theme.colors.surface }]} onPress={() => {}}>
+            <Text style={[styles.errSheetTitle, { color: theme.colors.onSurface }]}>
               {errPersist ? '⚠️ Voice Input' : 'ℹ️ Voice Input'}
             </Text>
             <ScrollView style={styles.errSheetScroll} showsVerticalScrollIndicator={false}>
             {errAction === 'diag' ? (
-              <ScrollView style={styles.diagScroll}>
-                <Text style={styles.diagText}>{errMsg}</Text>
+              <ScrollView style={[styles.diagScroll, { backgroundColor: theme.colors.background }]}>
+                <Text style={[styles.diagText, { color: theme.colors.onSurfaceVariant }]}>{errMsg}</Text>
               </ScrollView>
             ) : (
-              <Text style={styles.errSheetMsg}>{errMsg}</Text>
+              <Text style={[styles.errSheetMsg, { color: theme.colors.onSurface }]}>{errMsg}</Text>
             )}
             {errAction === 'permission' && (
               <View style={styles.errActions}>
-                <Pressable style={styles.errActionBtn} onPress={openAppSettings}>
-                  <Text style={styles.errActionBtnText}>Open App Settings</Text>
-                  <Text style={styles.errActionBtnSub}>Grant Microphone permission manually</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={openAppSettings}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Open App Settings</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Grant Microphone permission manually</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={dismissErr}>
-                  <Text style={styles.errActionBtnText}>Try Again</Text>
-                  <Text style={styles.errActionBtnSub}>After enabling permission, tap mic</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={dismissErr}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Try Again</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>After enabling permission, tap mic</Text>
                 </Pressable>
               </View>
             )}
             {errAction === 'lang-unavailable' && (
               <View style={styles.errActions}>
                 <Pressable
-                  style={styles.errActionBtn}
+                  style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}
                   onPress={() => openPlayStore('com.google.android.tts')}
                 >
-                  <Text style={styles.errActionBtnText}>Open Speech Services by Google</Text>
-                  <Text style={styles.errActionBtnSub}>Download the English voice model</Text>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Open Speech Services by Google</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Download the English voice model</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={retryDetection}>
-                  <Text style={styles.errActionBtnText}>Retry Detection</Text>
-                  <Text style={styles.errActionBtnSub}>After downloading, rescan devices</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={retryDetection}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Retry Detection</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>After downloading, rescan devices</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={switchToWhisper}>
-                  <Text style={styles.errActionBtnText}>Use Whisper API</Text>
-                  <Text style={styles.errActionBtnSub}>Cloud transcription — needs API key</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={switchToWhisper}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Use Whisper API</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Cloud transcription — needs API key</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={copyDiagnostics}>
-                  <Text style={styles.errActionBtnText}>Copy diagnostics</Text>
-                  <Text style={styles.errActionBtnSub}>Paste the scan + probe output into a bug report</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={copyDiagnostics}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Copy diagnostics</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Paste the scan + probe output into a bug report</Text>
                 </Pressable>
               </View>
             )}
             {errAction === 'no-service' && (
               <View style={styles.errActions}>
                 <Pressable
-                  style={styles.errActionBtn}
+                  style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}
                   onPress={() => openPlayStore('com.google.android.tts')}
                 >
-                  <Text style={styles.errActionBtnText}>Install Speech Services by Google</Text>
-                  <Text style={styles.errActionBtnSub}>com.google.android.tts — provides on-device STT</Text>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Install Speech Services by Google</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>com.google.android.tts — provides on-device STT</Text>
                 </Pressable>
                 <Pressable
-                  style={styles.errActionBtn}
+                  style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}
                   onPress={() => openPlayStore('com.samsung.android.bixby.agent')}
                 >
-                  <Text style={styles.errActionBtnText}>Install Samsung Bixby</Text>
-                  <Text style={styles.errActionBtnSub}>com.samsung.android.bixby.agent</Text>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Install Samsung Bixby</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>com.samsung.android.bixby.agent</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={switchToWhisper}>
-                  <Text style={styles.errActionBtnText}>Use Whisper API</Text>
-                  <Text style={styles.errActionBtnSub}>Cloud transcription — needs API key</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={switchToWhisper}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Use Whisper API</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Cloud transcription — needs API key</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={retryDetection}>
-                  <Text style={styles.errActionBtnText}>Retry Detection</Text>
-                  <Text style={styles.errActionBtnSub}>Rescan device for speech services</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={retryDetection}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Retry Detection</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Rescan device for speech services</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={copyDiagnostics}>
-                  <Text style={styles.errActionBtnText}>Copy diagnostics</Text>
-                  <Text style={styles.errActionBtnSub}>Paste the scan + probe output into a bug report</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={copyDiagnostics}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Copy diagnostics</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Paste the scan + probe output into a bug report</Text>
                 </Pressable>
               </View>
             )}
             {errAction === 'diag' && (
               <View style={styles.errActions}>
-                <Pressable style={styles.errActionBtn} onPress={copyDiagnostics}>
-                  <Text style={styles.errActionBtnText}>Copy again</Text>
-                  <Text style={styles.errActionBtnSub}>Writes the dump above to the clipboard</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={copyDiagnostics}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Copy again</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Writes the dump above to the clipboard</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={retryDetection}>
-                  <Text style={styles.errActionBtnText}>Retry Detection</Text>
-                  <Text style={styles.errActionBtnSub}>Rescan device for speech services</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={retryDetection}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Retry Detection</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Rescan device for speech services</Text>
                 </Pressable>
-                <Pressable style={styles.errActionBtn} onPress={switchToWhisper}>
-                  <Text style={styles.errActionBtnText}>Use Whisper API</Text>
-                  <Text style={styles.errActionBtnSub}>Cloud transcription — needs API key</Text>
+                <Pressable style={[styles.errActionBtn, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} onPress={switchToWhisper}>
+                  <Text style={[styles.errActionBtnText, { color: theme.colors.onSurface }]}>Use Whisper API</Text>
+                  <Text style={[styles.errActionBtnSub, { color: theme.colors.onSurfaceVariant }]}>Cloud transcription — needs API key</Text>
                 </Pressable>
               </View>
             )}
             </ScrollView>
-            <Pressable style={styles.errSheetBtn} onPress={dismissErr}>
-              <Text style={styles.errSheetBtnText}>
+            <Pressable style={[styles.errSheetBtn, { backgroundColor: theme.colors.primary }]} onPress={dismissErr}>
+              <Text style={[styles.errSheetBtnText, { color: theme.colors.onPrimary }]}>
                 {errAction === 'none' ? 'Got it' : 'Dismiss'}
               </Text>
             </Pressable>
@@ -1172,11 +1174,11 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       <View style={styles.orbContainer}>
         {isListening && (
           <>
-            <Animated.View style={[styles.ring, {
+            <Animated.View style={[styles.ring, { borderColor: theme.colors.primary }, {
               opacity: ring1Anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.7, 0.4, 0] }),
               transform: [{ scale: ring1Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] }) }],
             }]} />
-            <Animated.View style={[styles.ring, {
+            <Animated.View style={[styles.ring, { borderColor: theme.colors.primary }, {
               opacity: ring2Anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.7, 0.4, 0] }),
               transform: [{ scale: ring2Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.5] }) }],
             }]} />
@@ -1188,13 +1190,14 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
             disabled={disabled || detecting}
             style={({ pressed }: { pressed: boolean }) => [
               styles.btn,
-              pressed && styles.btnPressed,
-              isListening && styles.btnActive,
+              { borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surface },
+              pressed && { backgroundColor: theme.colors.surfaceVariant },
+              isListening && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
               (disabled || detecting) && styles.btnDisabled,
             ]}
             hitSlop={8}
           >
-            <Text style={[styles.icon, isListening && styles.iconActive]}>
+            <Text style={[styles.icon, { color: theme.colors.onSurface }, isListening && { color: theme.colors.onPrimary }]}>
               {detecting ? '…' : isListening ? '⏹' : '⏺'}
             </Text>
           </Pressable>
@@ -1207,19 +1210,8 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
 const styles = StyleSheet.create({
   btn: {
     width: 64, height: 64, borderRadius: 32,
-    borderWidth: 1.5, borderColor: '#C4A882',
-    backgroundColor: '#0d0d0d',
+    borderWidth: 1.5,
     alignItems: 'center', justifyContent: 'center',
-  },
-  btnPressed: { backgroundColor: '#1a1008' },
-  btnActive: {
-    backgroundColor: '#DA7756',
-    borderColor: '#DA7756',
-    elevation: 8,
-    shadowColor: '#DA7756',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 12,
   },
   btnDisabled: { opacity: 0.35 },
   orbContainer: {
@@ -1234,46 +1226,44 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 32,
     borderWidth: 2,
-    borderColor: '#DA7756',
   },
-  icon: { fontSize: 26, color: '#C4A882' },
-  iconActive: { color: '#fff' },
-  errSheetTitle: { color: '#f0f0f0', fontSize: 17, fontWeight: '700', marginBottom: 4 },
-  errSheetMsg: { color: '#ccc', fontSize: 15, lineHeight: 22 },
-  diagScroll: { maxHeight: 300, backgroundColor: '#0a0a0a', borderRadius: 8, padding: 10 },
-  diagText: { color: '#c4a882', fontSize: 12, fontFamily: 'Menlo', lineHeight: 17 },
+  icon: { fontSize: 26 },
+  errSheetTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
+  errSheetMsg: { fontSize: 15, lineHeight: 22 },
+  diagScroll: { maxHeight: 300, borderRadius: 8, padding: 10 },
+  diagText: { fontSize: 12, fontFamily: 'Menlo', lineHeight: 17 },
   errSheetBtn: {
-    marginTop: 16, backgroundColor: '#DA7756', borderRadius: 10,
+    marginTop: 16, borderRadius: 10,
     paddingVertical: 12, alignItems: 'center',
   },
-  errSheetBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  errSheetBtnText: { fontSize: 16, fontWeight: '700' },
   errActions: { gap: 10, marginTop: 12 },
   errActionBtn: {
-    backgroundColor: '#1a1a1a', borderRadius: 10, padding: 14,
-    borderWidth: 1, borderColor: '#2a2a2a',
+    borderRadius: 10, padding: 14,
+    borderWidth: 1,
   },
-  errActionBtnText: { color: '#f0f0f0', fontSize: 15, fontWeight: '600' },
-  errActionBtnSub: { color: '#666', fontSize: 12, marginTop: 3 },
+  errActionBtnText: { fontSize: 15, fontWeight: '600' },
+  errActionBtnSub: { fontSize: 12, marginTop: 3 },
   overlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    flex: 1,
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#111', borderTopLeftRadius: 16, borderTopRightRadius: 16,
+    borderTopLeftRadius: 16, borderTopRightRadius: 16,
     padding: 24, paddingBottom: 40, gap: 12, maxHeight: '85%',
   },
   errSheetScroll: { flex: 1 },
-  sheetTitle: { color: '#f0f0f0', fontSize: 17, fontWeight: '700' },
-  sheetSub: { color: '#666', fontSize: 13, marginBottom: 4 },
+  sheetTitle: { fontSize: 17, fontWeight: '700' },
+  sheetSub: { fontSize: 13, marginBottom: 4 },
   sheetOption: {
-    backgroundColor: '#1a1a1a', borderRadius: 10, padding: 16,
-    borderWidth: 1, borderColor: '#2a2a2a',
+    borderRadius: 10, padding: 16,
+    borderWidth: 1,
   },
-  sheetOptionLabel: { color: '#f0f0f0', fontSize: 15, fontWeight: '600' },
-  sheetOptionPkg: { color: '#444', fontSize: 11, fontFamily: 'Menlo', marginTop: 2 },
+  sheetOptionLabel: { fontSize: 15, fontWeight: '600' },
+  sheetOptionPkg: { fontSize: 11, fontFamily: 'Menlo', marginTop: 2 },
   sheetWhisper: {
     marginTop: 4, padding: 14, borderRadius: 10,
-    borderWidth: 1, borderColor: '#C4A882', alignItems: 'center',
+    borderWidth: 1, alignItems: 'center',
   },
-  sheetWhisperText: { color: '#C4A882', fontSize: 14, fontWeight: '600' },
+  sheetWhisperText: { fontSize: 14, fontWeight: '600' },
 });

@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Button, useTheme } from 'react-native-paper';
 import type { ApprovalPolicy, PolicyAction } from '../types';
 
 const COMMON_TOOLS = [
@@ -40,12 +41,6 @@ function cycleAction(current: PolicyAction): PolicyAction {
   return 'prompt';
 }
 
-function badgeColor(action: PolicyAction): { bg: string; text: string } {
-  if (action === 'allow') return { bg: '#166534', text: '#4ade80' };
-  if (action === 'deny') return { bg: '#3a1a1a', text: '#f87171' };
-  return { bg: '#1a1500', text: '#fbbf24' };
-}
-
 function badgeLabel(action: PolicyAction): string {
   if (action === 'allow') return 'Auto-Allow';
   if (action === 'deny') return 'Auto-Deny';
@@ -55,6 +50,7 @@ function badgeLabel(action: PolicyAction): string {
 const TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 
 export function ApprovalPolicyScreen({ visible, onClose, policies, onRefresh, onSet, onDelete }: Props) {
+  const theme = useTheme();
   const [customTool, setCustomTool] = useState('');
   const lastTapRef = useRef(0);
 
@@ -82,18 +78,28 @@ export function ApprovalPolicyScreen({ visible, onClose, policies, onRefresh, on
     setCustomTool('');
   };
 
+  const badgeBg = (action: PolicyAction): string => {
+    if (action === 'allow') return theme.colors.primaryContainer;
+    if (action === 'deny') return theme.colors.errorContainer;
+    return theme.colors.surfaceVariant;
+  };
+
+  const badgeTextColor = (action: PolicyAction): string => {
+    if (action === 'allow') return theme.colors.primary;
+    if (action === 'deny') return theme.colors.error;
+    return theme.colors.onSurfaceVariant;
+  };
+
   const customPolicies = policies.filter(p => !COMMON_TOOLS.includes(p.tool_name));
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>Approval Policies</Text>
-          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Done">
-            <Text style={styles.doneBtn}>Done</Text>
-          </Pressable>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>Approval Policies</Text>
+          <Button mode="text" onPress={onClose} accessibilityRole="button" accessibilityLabel="Done">Done</Button>
         </View>
-        <Text style={styles.hint}>
+        <Text style={[styles.hint, { color: theme.colors.onSurfaceVariant }]}>
           Tap to cycle: Ask me → Auto-Allow → Auto-Deny. Keep Bash, Write, and Edit on Ask me.
         </Text>
         <FlatList
@@ -101,12 +107,11 @@ export function ApprovalPolicyScreen({ visible, onClose, policies, onRefresh, on
           keyExtractor={item => item}
           renderItem={({ item }) => {
             const action = getPolicyAction(policies, item);
-            const colors = badgeColor(action);
             return (
-              <Pressable style={styles.row} onPress={() => handleTap(item)} accessibilityRole="button" accessibilityLabel={`${item}: ${badgeLabel(action)}. Tap to change.`}>
-                <Text style={styles.toolName}>{item}</Text>
-                <View style={[styles.badge, { backgroundColor: colors.bg }]}>
-                  <Text style={[styles.badgeText, { color: colors.text }]}>
+              <Pressable style={[styles.row, { borderBottomColor: theme.colors.outlineVariant }]} onPress={() => handleTap(item)} accessibilityRole="button" accessibilityLabel={`${item}: ${badgeLabel(action)}. Tap to change.`}>
+                <Text style={[styles.toolName, { color: theme.colors.onSurface }]}>{item}</Text>
+                <View style={[styles.badge, { backgroundColor: badgeBg(action) }]}>
+                  <Text style={[styles.badgeText, { color: badgeTextColor(action) }]}>
                     {badgeLabel(action)}
                   </Text>
                 </View>
@@ -115,23 +120,23 @@ export function ApprovalPolicyScreen({ visible, onClose, policies, onRefresh, on
           }}
           ListFooterComponent={
             <View style={styles.addSection}>
-              <Text style={styles.sectionLabel}>Custom Tool Rule</Text>
+              <Text style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>Custom Tool Rule</Text>
               <View style={styles.addRow}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant, color: theme.colors.onSurface }]}
                   placeholder="Tool name"
-                  placeholderTextColor="#555"
+                  placeholderTextColor={theme.colors.onSurfaceVariant}
                   value={customTool}
                   onChangeText={setCustomTool}
                   autoCapitalize="none"
                 />
-                <Pressable
-                  style={[styles.addBtn, !customTool.trim() && styles.addBtnDisabled]}
+                <Button
+                  mode="contained-tonal"
                   onPress={handleAddCustom}
                   disabled={!customTool.trim()}
                 >
-                  <Text style={styles.addBtnText}>Add</Text>
-                </Pressable>
+                  Add
+                </Button>
               </View>
             </View>
           }
@@ -142,7 +147,7 @@ export function ApprovalPolicyScreen({ visible, onClose, policies, onRefresh, on
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a', paddingTop: 60 },
+  container: { flex: 1, paddingTop: 60 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -150,9 +155,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 8,
   },
-  title: { color: '#f0f0f0', fontSize: 20, fontWeight: '700' },
-  doneBtn: { color: '#60a5fa', fontSize: 16, fontWeight: '600' },
-  hint: { color: '#888', fontSize: 13, paddingHorizontal: 20, marginBottom: 16 },
+  title: { fontSize: 20, fontWeight: '700' },
+  hint: { fontSize: 13, paddingHorizontal: 20, marginBottom: 16 },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -160,30 +164,19 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#1a1a1a',
   },
-  toolName: { color: '#f0f0f0', fontSize: 15 },
+  toolName: { fontSize: 15 },
   badge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   badgeText: { fontSize: 13, fontWeight: '600' },
   addSection: { paddingHorizontal: 20, paddingTop: 24 },
-  sectionLabel: { color: '#888', fontSize: 13, fontWeight: '600', marginBottom: 8 },
-  addRow: { flexDirection: 'row', gap: 8 },
+  sectionLabel: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
+  addRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   input: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
-    color: '#f0f0f0',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
+    borderWidth: 1,
   },
-  addBtn: {
-    backgroundColor: '#1a3a2a',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    justifyContent: 'center',
-  },
-  addBtnDisabled: { opacity: 0.4 },
-  addBtnText: { color: '#4ade80', fontWeight: '600', fontSize: 15 },
 });

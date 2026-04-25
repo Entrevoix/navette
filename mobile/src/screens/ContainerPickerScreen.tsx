@@ -3,7 +3,6 @@
 
 import React, { useEffect } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -11,6 +10,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { ActivityIndicator, Button, useTheme } from 'react-native-paper';
 import type { ContainerInfo } from '../types';
 
 interface ContainerPickerScreenProps {
@@ -30,6 +30,8 @@ export function ContainerPickerScreen({
   selectedContainer,
   onSelect,
 }: ContainerPickerScreenProps) {
+  const theme = useTheme();
+
   useEffect(() => {
     if (visible) onRefresh();
   }, [visible, onRefresh]);
@@ -43,23 +45,19 @@ export function ContainerPickerScreen({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Containers</Text>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: theme.colors.outlineVariant }]}>
+          <Text style={[styles.title, { color: theme.colors.onSurface }]}>Containers</Text>
           <View style={styles.headerRight}>
-            <Pressable onPress={onRefresh} hitSlop={12} style={styles.refreshBtn}>
-              <Text style={styles.refreshText}>Refresh</Text>
-            </Pressable>
-            <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-              <Text style={styles.closeText}>Done</Text>
-            </Pressable>
+            <Button mode="text" compact onPress={onRefresh}>Refresh</Button>
+            <Button mode="text" compact onPress={onClose}>Done</Button>
           </View>
         </View>
 
         {loading ? (
           <View style={styles.loadingState}>
-            <ActivityIndicator size="large" color="#818cf8" />
-            <Text style={styles.loadingText}>Fetching containers...</Text>
+            <ActivityIndicator size="large" />
+            <Text style={[styles.loadingText, { color: theme.colors.onSurfaceVariant }]}>Fetching containers...</Text>
           </View>
         ) : (
           <FlatList
@@ -73,24 +71,24 @@ export function ContainerPickerScreen({
                 : item.name === selectedContainer;
               return (
                 <Pressable
-                  style={[styles.card, isSelected && styles.cardSelected]}
+                  style={[styles.card, { backgroundColor: theme.colors.surfaceVariant, borderColor: 'transparent' }, isSelected && { borderColor: theme.colors.primary, backgroundColor: theme.colors.primaryContainer }]}
                   onPress={() => handleSelect(item.name)}
                 >
-                  <View style={styles.cardIcon}>
+                  <View style={[styles.cardIcon, { backgroundColor: theme.colors.surface }]}>
                     <Text style={styles.cardIconText}>{isHost ? '🖥' : '📦'}</Text>
                   </View>
                   <View style={styles.cardBody}>
-                    <Text style={[styles.containerName, isSelected && styles.containerNameSelected]}>
+                    <Text style={[styles.containerName, { color: theme.colors.onSurface }, isSelected && { color: theme.colors.primary }]}>
                       {item.display || item.name || 'Host (no container)'}
                     </Text>
                     {item.status ? (
-                      <Text style={styles.containerStatus}>{item.status}</Text>
+                      <Text style={[styles.containerStatus, { color: theme.colors.onSurfaceVariant }]}>{item.status}</Text>
                     ) : null}
                     {item.image ? (
-                      <Text style={styles.containerImage} numberOfLines={1}>{item.image}</Text>
+                      <Text style={[styles.containerImage, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>{item.image}</Text>
                     ) : null}
                   </View>
-                  {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                  {isSelected && <Text style={[styles.checkmark, { color: theme.colors.primary }]}>✓</Text>}
                 </Pressable>
               );
             }}
@@ -103,7 +101,7 @@ export function ContainerPickerScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f1a' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -112,42 +110,32 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a2e',
   },
-  title: { color: '#f0f0f0', fontSize: 18, fontWeight: '700' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  refreshBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  refreshText: { color: '#818cf8', fontSize: 15, fontWeight: '600' },
-  closeBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  closeText: { color: '#4ade80', fontSize: 15, fontWeight: '600' },
+  title: { fontSize: 18, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   loadingState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
-  loadingText: { color: '#71717a', fontSize: 14 },
+  loadingText: { fontSize: 14 },
   listContent: { paddingHorizontal: 16, paddingVertical: 12, paddingBottom: 24 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e1e2e',
     borderRadius: 10,
     padding: 16,
     gap: 12,
     borderWidth: 1,
-    borderColor: 'transparent',
   },
-  cardSelected: { borderColor: '#4ade80', backgroundColor: '#14280f' },
   cardIcon: {
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#2a2a3e',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardIconText: { fontSize: 18 },
   cardBody: { flex: 1, gap: 2 },
-  containerName: { color: '#f0f0f0', fontSize: 15, fontWeight: '700' },
-  containerNameSelected: { color: '#4ade80' },
-  containerStatus: { color: '#9ca3af', fontSize: 12 },
-  containerImage: { color: '#52525b', fontSize: 11, fontFamily: 'Menlo' },
-  checkmark: { color: '#4ade80', fontSize: 18, fontWeight: '700' },
+  containerName: { fontSize: 15, fontWeight: '700' },
+  containerStatus: { fontSize: 12 },
+  containerImage: { fontSize: 11, fontFamily: 'Menlo' },
+  checkmark: { fontSize: 18, fontWeight: '700' },
   separator: { height: 8 },
 });

@@ -5,6 +5,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Button, IconButton, useTheme } from 'react-native-paper';
 
 const PIN_KEY = 'navette_pin';
 const PIN_NONE = 'none';
@@ -18,6 +19,7 @@ type Mode = 'checking' | 'biometric' | 'pin_entry' | 'pin_setup' | 'pin_setup_co
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
 
 export function LockScreen({ onUnlock }: LockScreenProps) {
+  const theme = useTheme();
   const [mode, setMode] = useState<Mode>('checking');
   const [pin, setPin] = useState('');
   const [setupPin, setSetupPin] = useState('');
@@ -115,76 +117,77 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
     'Enter PIN';
 
   return (
+    <View style={[styles.outer, { backgroundColor: theme.colors.background }]}>
     <View style={styles.container}>
-      <Text style={styles.appName}>navette</Text>
+      <Text style={[styles.appName, { color: theme.colors.onSurface }]}>navette</Text>
 
       {mode === 'biometric' && (
-        <Text style={styles.subtitle}>Verifying identity…</Text>
+        <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>Verifying identity…</Text>
       )}
 
       {(mode === 'pin_entry' || mode === 'pin_setup' || mode === 'pin_setup_confirm') && (
         <>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>{subtitle}</Text>
 
           <View style={styles.dotsRow}>
             {Array.from({ length: 4 }).map((_, i) => (
-              <View key={i} style={[styles.dot, i < pin.length && styles.dotFilled]} />
+              <View key={i} style={[styles.dot, { borderColor: theme.colors.outlineVariant }, i < pin.length && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]} />
             ))}
           </View>
 
-          {error !== '' && <Text style={styles.errorText}>{error}</Text>}
+          {error !== '' && <Text style={[styles.errorText, { color: theme.colors.error }]}>{error}</Text>}
 
           <View style={styles.keypad}>
             {KEYS.map((k, i) =>
               k === '' ? (
                 <View key={i} style={styles.keyEmpty} />
+              ) : k === '⌫' ? (
+                <IconButton key={i} icon="backspace-outline" size={24} onPress={() => handleKey(k)} style={[styles.key, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]} />
               ) : (
                 <Pressable
                   key={i}
-                  style={({ pressed }: { pressed: boolean }) => [styles.key, pressed && styles.keyPressed]}
+                  style={({ pressed }: { pressed: boolean }) => [styles.key, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }, pressed && { backgroundColor: theme.colors.surfaceDisabled }]}
                   onPress={() => handleKey(k)}
                 >
-                  <Text style={styles.keyText}>{k}</Text>
+                  <Text style={[styles.keyText, { color: theme.colors.onSurface }]}>{k}</Text>
                 </Pressable>
               )
             )}
           </View>
 
           {mode === 'pin_entry' && (
-            <Pressable onPress={tryBiometric} style={styles.altBtn}>
-              <Text style={styles.altBtnText}>Use Biometrics</Text>
-            </Pressable>
+            <Button mode="text" onPress={tryBiometric} style={styles.altBtn}>Use Biometrics</Button>
           )}
 
           {(mode === 'pin_setup' || mode === 'pin_setup_confirm') && (
-            <Pressable onPress={handleSkip} style={styles.altBtn}>
-              <Text style={styles.altBtnText}>Skip — no PIN protection</Text>
-            </Pressable>
+            <Button mode="text" onPress={handleSkip} style={styles.altBtn}>Skip — no PIN protection</Button>
           )}
         </>
       )}
+    </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  outer: { flex: 1 },
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
     alignItems: 'center',
     justifyContent: 'center',
     paddingBottom: 40,
+    maxWidth: 600,
+    alignSelf: 'center',
+    width: '100%',
   },
   appName: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#f0f0f0',
     letterSpacing: -0.5,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 32,
   },
   dotsRow: {
@@ -197,15 +200,9 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
     borderWidth: 1.5,
-    borderColor: '#444',
     backgroundColor: 'transparent',
   },
-  dotFilled: {
-    backgroundColor: '#4ade80',
-    borderColor: '#4ade80',
-  },
   errorText: {
-    color: '#f87171',
     fontSize: 13,
     marginTop: 8,
     marginBottom: 8,
@@ -221,32 +218,19 @@ const styles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: '#141414',
     borderWidth: 1,
-    borderColor: '#2a2a2a',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  keyPressed: {
-    backgroundColor: '#1f1f1f',
   },
   keyEmpty: {
     width: 68,
     height: 68,
   },
   keyText: {
-    color: '#f0f0f0',
     fontSize: 22,
     fontWeight: '400',
   },
   altBtn: {
     marginTop: 28,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  altBtnText: {
-    color: '#4ade80',
-    fontSize: 14,
-    fontWeight: '500',
   },
 });
