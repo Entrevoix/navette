@@ -127,6 +127,40 @@ fn handle_pair() -> Result<()> {
     Ok(())
 }
 
+/// If running inside a distrobox/toolbox container, re-exec on the host so that
+/// `distrobox-enter` calls in `claude.rs` work correctly.  Returns `Some(exit_code)`
+/// when re-exec happened (caller should exit), `None` when already on the host.
+fn maybe_reexec_on_host() -> Result<Option<i32>> {
+    if std::env::var_os("NAVETTED_ON_HOST").is_some() {
+        return Ok(None);
+    }
+    if !std::path::Path::new("/run/.containerenv").exists() {
+        return Ok(None);
+    }
+    let host_exec = std::env::var("PATH")
+        .unwrap_or_default()
+        .split(':')
+        .map(|dir| std::path::PathBuf::from(dir).join("distrobox-host-exec"))
+        .find(|p| p.exists())
+        .context("inside a container but distrobox-host-exec not found on PATH")?;
+
+    let exe = std::env::current_exe().context("failed to resolve own binary path")?;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    eprintln!(
+        "navetted: detected container environment, re-launching on host via distrobox-host-exec"
+    );
+
+    let status = std::process::Command::new(host_exec)
+        .arg(exe)
+        .args(&args)
+        .env("NAVETTED_ON_HOST", "1")
+        .status()
+        .context("failed to exec distrobox-host-exec")?;
+
+    Ok(Some(status.code().unwrap_or(1)))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     if std::env::args().any(|a| a == "--help" || a == "-h") {
@@ -135,6 +169,10 @@ async fn main() -> Result<()> {
     }
     if std::env::args().any(|a| a == "--pair") {
         return handle_pair();
+    }
+
+    if let Some(code) = maybe_reexec_on_host()? {
+        std::process::exit(code);
     }
 
     tracing_subscriber::fmt::init();
