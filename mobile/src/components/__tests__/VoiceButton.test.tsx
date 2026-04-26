@@ -184,6 +184,7 @@ describe('VoiceButton — on-device tap-to-toggle (default)', () => {
   });
 
   it('shows error when mic permission denied', async () => {
+    mockGetPermissionsAsync.mockResolvedValueOnce({ granted: false, canAskAgain: true });
     mockRequestPermissionsAsync.mockResolvedValueOnce({ granted: false });
     const { getByText } = renderButton();
     await pressIn(getByText('⏺'));
@@ -396,10 +397,14 @@ describe('VoiceButton — picker auto-start arms the safety cap', () => {
   afterEach(() => { jest.useRealTimers(); });
 
   it('picker-started session auto-stops at the 3-min cap (regression for picker bypass)', async () => {
-    // Multi-service detection so picker actually opens (single hit auto-starts).
+    // Three services: after the initial start fails with code 5, the error
+    // handler adds the attempted pkg (com.google.android.tts) to
+    // sessionFailedPkgs. Detection then filters it out — we need 2+ real
+    // hits remaining so the picker opens instead of single-hit auto-start.
     mockGetSpeechRecognitionServices.mockReturnValue([
       'com.google.android.tts',
       'com.samsung.android.bixby.agent',
+      'com.google.android.as',
     ]);
     mockGetDefaultRecognitionService.mockReturnValue({ packageName: 'com.google.android.tts' });
 
