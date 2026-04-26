@@ -15,10 +15,11 @@ import { ConnectScreen } from './src/screens/ConnectScreen';
 import { LockScreen } from './src/screens/LockScreen';
 import { MainScreen } from './src/screens/MainScreen';
 import { useNavettedWS } from './src/hooks/useNavettedWS';
-import { ServerConfig } from './src/types';
+import { SavedConfig, ServerConfig } from './src/types';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { SnackbarProvider } from './src/SnackbarContext';
 import { ThemeProvider, useThemeMode } from './src/ThemeContext';
+import { loadSavedConfigs, findConfigName } from './src/utils/serverConfigs';
 
 
 const LAST_CONFIG_KEY = 'navette_last_config';
@@ -38,22 +39,32 @@ function AppInner() {
   const { status, sessionStatus, sessions, activeSessionId, setActiveSessionId, events, pendingApprovals, lastSeq, viewStartSeq, notifyConfig, testNotificationResult, reconnecting, reconnectCount, connectionLost, connect, retry, disconnect, decide, batchDecide, run, kill, sendInput, getNotifyConfig, sendTestNotification, listDir, readFile, writeFile, createDir, skills, listSkills, pastSessions, sessionHistory, listPastSessions, getSessionHistory, scheduledSessions, scheduleSession, cancelScheduledSession, listScheduledSessions, savedPrompts, listPrompts, savePrompt, updatePrompt, deletePrompt, secrets, listSecrets, setSecret, deleteSecret, devices, listDevices, revokeDevice, renameDevice, approvalPolicies, getApprovalPolicies, setApprovalPolicy, deleteApprovalPolicy, containers, listContainers, mcpServers, listMcpServers, searchResults, searchSessions, hasUnread } = useNavettedWS();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [isLocked, setIsLocked] = useState(false);
+  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>([]);
 
   const configRef = useRef<ServerConfig | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const isConnectedRef = useRef(false);
   const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const switchingRef = useRef(false);
+  const switchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const LOCK_DELAY_MS = 5 * 60 * 1000;
 
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => {
     isConnectedRef.current = status === 'connected' || status === 'authenticating' || status === 'connecting';
+    if (status === 'connected') {
+      switchingRef.current = false;
+      if (switchTimeoutRef.current) { clearTimeout(switchTimeoutRef.current); switchTimeoutRef.current = null; }
+      loadSavedConfigs().then(setSavedConfigs);
+    }
   }, [status]);
 
-  // Auto-connect from last session on startup
+  // Load saved configs + auto-connect from last session on startup
   useEffect(() => {
     (async () => {
+      const configs = await loadSavedConfigs();
+      setSavedConfigs(configs);
       const raw = await SecureStore.getItemAsync(LAST_CONFIG_KEY);
       if (!raw) return;
       try {
@@ -113,7 +124,25 @@ function AppInner() {
     await SecureStore.deleteItemAsync(LAST_CONFIG_KEY);
   };
 
-  const isConnected = status === 'connected' || status === 'authenticating' || status === 'connecting' || reconnecting || connectionLost;
+  const handleSwitchServer = async (cfg: SavedConfig) => {
+    switchingRef.current = true;
+    switchTimeoutRef.current = setTimeout(() => {
+      switchingRef.current = false;
+      switchTimeoutRef.current = null;
+    }, 5000);
+    disconnect();
+    setTimeout(() => handleConnect(cfg), 100);
+  };
+
+  const handleEditServers = () => {
+    disconnect();
+    setConfig(null);
+    configRef.current = null;
+  };
+
+  const serverName = findConfigName(config, savedConfigs);
+
+  const isConnected = status === 'connected' || status === 'authenticating' || status === 'connecting' || reconnecting || connectionLost || switchingRef.current;
 
   return (
     <PaperProvider theme={theme}>
@@ -127,6 +156,12 @@ function AppInner() {
             <MainScreen
               status={status}
               sessionStatus={sessionStatus}
+              serverName={serverName}
+              savedConfigs={savedConfigs}
+              currentHost={config?.host ?? ''}
+              currentPort={config?.port ?? ''}
+              onSwitchServer={handleSwitchServer}
+              onEditServers={handleEditServers}
               sessions={sessions}
               activeSessionId={activeSessionId}
               onSetActiveSessionId={setActiveSessionId}

@@ -112,6 +112,11 @@ export interface ServerConfig {
   useMosh?: boolean;
 }
 
+export interface SavedConfig extends ServerConfig {
+  id: string;
+  name: string;
+}
+
 export interface MoshInfo {
   port: number;
   key: string;

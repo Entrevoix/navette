@@ -26,13 +26,20 @@ import { VoiceButton } from '../components/VoiceButton';
 import { ContainerPickerScreen } from './ContainerPickerScreen';
 import { FileBrowserScreen } from './FileBrowserScreen';
 import { SettingsScreen } from './SettingsScreen';
-import { ApprovalPolicy, ConnectionStatus, ContainerInfo, DeviceEntry, DirCreatedEvent, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, McpServerInfo, PastSessionInfo, PendingApproval, PolicyAction, SavedPrompt, ScheduledSessionInfo, SearchResult, SecretEntry, SessionInfo, SessionStatus } from '../types';
+import { ApprovalPolicy, ConnectionStatus, ContainerInfo, DeviceEntry, DirCreatedEvent, DirListingEvent, EventFrame, FileContentEvent, FileWriteResultEvent, McpServerInfo, PastSessionInfo, PendingApproval, PolicyAction, SavedConfig, SavedPrompt, ScheduledSessionInfo, SearchResult, SecretEntry, SessionInfo, SessionStatus } from '../types';
 import type { NotifyConfig, SkillInfo } from '../hooks/useNavettedWS';
 import { KanbanBoard } from '../components/KanbanBoard';
+import { ServerPicker } from '../components/ServerPicker';
 
 interface MainScreenProps {
   status: ConnectionStatus;
   sessionStatus: SessionStatus;
+  serverName: string;
+  savedConfigs: SavedConfig[];
+  currentHost: string;
+  currentPort: string;
+  onSwitchServer: (config: SavedConfig) => void;
+  onEditServers: () => void;
   sessions: SessionInfo[];
   activeSessionId: string | null;
   onSetActiveSessionId: (id: string | null) => void;
@@ -105,6 +112,12 @@ function formatElapsed(seconds: number): string {
 export function MainScreen({
   status,
   sessionStatus,
+  serverName,
+  savedConfigs,
+  currentHost,
+  currentPort,
+  onSwitchServer,
+  onEditServers,
   sessions,
   activeSessionId,
   onSetActiveSessionId,
@@ -191,6 +204,7 @@ export function MainScreen({
   const [customCommand, setCustomCommand] = useState('');
   const [selectedAgent, setSelectedAgent] = useState<AgentName>('claude');
   const [injectSecrets, setInjectSecrets] = useState(false);
+  const [serverPickerOpen, setServerPickerOpen] = useState(false);
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
   const [containerPickerOpen, setContainerPickerOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -371,10 +385,22 @@ export function MainScreen({
       />
 
       {/* Top bar */}
+      <ServerPicker
+        visible={serverPickerOpen}
+        configs={savedConfigs}
+        currentHost={currentHost}
+        currentPort={currentPort}
+        onSelect={(cfg) => { setServerPickerOpen(false); onSwitchServer(cfg); }}
+        onEditServers={() => { setServerPickerOpen(false); onEditServers(); }}
+        onClose={() => setServerPickerOpen(false)}
+      />
+
       <Appbar.Header style={{ backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.outlineVariant }} elevated={false}>
         <View style={styles.statusRow}>
           <View style={[styles.dot, { backgroundColor: statusColorMap[status] }]} />
-          <Text style={[styles.statusText, { color: theme.colors.onSurfaceVariant }]}>{status}</Text>
+          <Pressable onPress={() => setServerPickerOpen(true)} style={styles.serverNameBtn}>
+            <Text style={[styles.statusText, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>{serverName || status} ▾</Text>
+          </Pressable>
           {lastSeq > 0 && <Text style={[styles.seqBadge, { color: theme.colors.outline }]}>seq {lastSeq}</Text>}
           {reconnecting && (
             <Chip icon="sync" compact textStyle={{ fontSize: 11 }} style={{ backgroundColor: semantic.warningContainer }}>Reconnecting…</Chip>
@@ -655,6 +681,7 @@ const styles = StyleSheet.create({
 
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   dot: { width: 8, height: 8, borderRadius: 4 },
+  serverNameBtn: { flexShrink: 1 },
   statusText: { fontSize: 13, fontWeight: '500' },
   seqBadge: { fontSize: 11, marginLeft: 4 },
 

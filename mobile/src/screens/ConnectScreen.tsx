@@ -18,26 +18,15 @@ import {
   View,
 } from 'react-native';
 import { Button, IconButton, useTheme } from 'react-native-paper';
-import { ConnectionStatus, ServerConfig } from '../types';
+import { ConnectionStatus, SavedConfig, ServerConfig } from '../types';
+import { CONFIGS_KEY, LEGACY_KEY, tokenKey } from '../utils/serverConfigs';
 
 interface ConnectScreenProps {
   status: ConnectionStatus;
   onConnect: (config: ServerConfig) => void;
 }
 
-interface SavedConfig extends ServerConfig {
-  id: string;
-  name: string;
-}
-
-const CONFIGS_KEY = 'navette_saved_configs';
-const LEGACY_KEY = 'navette_config';
 const TS_API_KEY_STORAGE = 'tailscale_api_key';
-const TOKEN_KEY_PREFIX = 'navette_token_';
-
-function tokenKey(id: string): string {
-  return `${TOKEN_KEY_PREFIX}${id}`;
-}
 
 interface TsPeer { name: string; ip: string; }
 
