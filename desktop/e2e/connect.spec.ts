@@ -47,8 +47,7 @@ test.describe("Connection flow", () => {
     page,
   }) => {
     await connectToServer(page);
-    // SessionSidebar shows a "Sessions" heading
-    await expect(page.locator("text=Sessions")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
   });
 
   test("status bar shows connected after connecting", async ({ page }) => {

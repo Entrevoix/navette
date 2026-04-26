@@ -36,7 +36,7 @@ test.describe("View navigation", () => {
     await page.locator('nav button:has-text("Files")').first().click();
     // Return to Chat
     await page.locator('nav button:has-text("Chat")').first().click();
-    await expect(page.locator("text=Sessions")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
   });
 
   test("Settings button opens the settings dialog", async ({ page }) => {

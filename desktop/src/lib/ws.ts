@@ -29,6 +29,7 @@ export function createNavetteWS(): NavetteWS {
   let reconnectAttempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let shouldReconnect = false;
+  let rejected = false;
 
   const messageHandlers = new Set<MessageHandler>();
   const statusHandlers = new Set<(status: string) => void>();
@@ -59,12 +60,12 @@ export function createNavetteWS(): NavetteWS {
     const type = msg.type as string;
 
     if (type === "challenge") {
-      const challenge = msg.challenge as string;
-      const hmac = HmacSHA256(challenge, config!.token).toString(Hex);
+      const nonce = msg.nonce as string;
+      const hmac = HmacSHA256(nonce, config!.token).toString(Hex);
       ws?.send(
         JSON.stringify({
           type: "challenge_response",
-          response: hmac,
+          hmac,
         }),
       );
       return;
@@ -87,6 +88,7 @@ export function createNavetteWS(): NavetteWS {
 
     if (type === "rejected") {
       shouldReconnect = false;
+      rejected = true;
       setStatus("error");
       ws?.close();
       return;
@@ -105,7 +107,7 @@ export function createNavetteWS(): NavetteWS {
   function handleClose() {
     ws = null;
     if (!shouldReconnect) {
-      setStatus("disconnected");
+      if (!rejected) setStatus("disconnected");
       return;
     }
     setStatus("reconnecting");
@@ -147,6 +149,7 @@ export function createNavetteWS(): NavetteWS {
       }
       config = cfg;
       shouldReconnect = true;
+      rejected = false;
       reconnectAttempt = 0;
       doConnect();
     },
