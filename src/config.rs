@@ -15,6 +15,11 @@ pub struct NotifyConfig {
     pub telegram_bot_token: String,
     pub telegram_chat_id: String,
     pub webhook_url: Option<String>,
+    /// Base URL the phone uses to reach the HTTP API for ntfy action button
+    /// callbacks. When unset, falls back to the host's LAN IP at runtime, which
+    /// only works when the phone shares the LAN. Set this to a Tailscale or
+    /// reverse-proxy URL (no trailing slash) to support off-LAN clients.
+    pub action_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +118,11 @@ pub fn load_or_create() -> Result<Config> {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(String::from);
+        let action_base_url = table
+            .get("action_base_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty());
         let auto_compact_threshold = table
             .get("auto_compact_threshold")
             .and_then(|v| v.as_integer())
@@ -156,6 +166,7 @@ pub fn load_or_create() -> Result<Config> {
                 telegram_bot_token,
                 telegram_chat_id,
                 webhook_url,
+                action_base_url,
             },
             tls_cert_path,
             tls_key_path,
@@ -214,6 +225,7 @@ pub fn load_or_create() -> Result<Config> {
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
             webhook_url: None,
+            action_base_url: None,
         },
         tls_cert_path: Some(cert_str.into_owned()),
         tls_key_path: Some(key_str.into_owned()),
@@ -333,6 +345,7 @@ mod tests {
                 telegram_bot_token: String::new(),
                 telegram_chat_id: String::new(),
                 webhook_url: None,
+                action_base_url: None,
             },
             tls_cert_path: None,
             tls_key_path: None,
