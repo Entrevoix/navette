@@ -42,6 +42,22 @@ impl NotifyClient {
         priority: &str,
         tags: &[&str],
     ) -> Result<()> {
+        self.publish_inner(title, body, priority, tags, None).await
+    }
+
+    pub async fn publish_approval(&self, title: &str, body: &str, actions: &str) -> Result<()> {
+        self.publish_inner(title, body, "high", &["warning"], Some(actions))
+            .await
+    }
+
+    async fn publish_inner(
+        &self,
+        title: &str,
+        body: &str,
+        priority: &str,
+        tags: &[&str],
+        actions: Option<&str>,
+    ) -> Result<()> {
         if self.topic.is_empty() {
             return Ok(());
         }
@@ -55,6 +71,10 @@ impl NotifyClient {
 
         if !tags.is_empty() {
             builder = builder.header("Tags", tags.join(","));
+        }
+
+        if let Some(actions_hdr) = actions {
+            builder = builder.header("Actions", actions_hdr);
         }
 
         // Only send credentials over HTTPS to prevent token leakage.

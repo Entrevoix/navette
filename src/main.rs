@@ -5,6 +5,7 @@ mod claude;
 mod config;
 mod db;
 mod hook;
+mod http;
 mod notify;
 mod ws;
 
@@ -179,8 +180,13 @@ async fn main() -> Result<()> {
 
     let cfg = Arc::new(config::load_or_create()?);
     let tls_acceptor = ws::load_tls_acceptor(&cfg)?;
+    let http_port: u16 = cfg
+        .ws_port
+        .checked_add(1)
+        .context("ws_port must be < 65535 for the HTTP API")?;
     tracing::info!(
         ws_port = cfg.ws_port,
+        http_port,
         max_concurrent = cfg.max_concurrent_sessions,
         tls = tls_acceptor.is_some(),
         "config loaded"
@@ -215,15 +221,46 @@ async fn main() -> Result<()> {
     {
         let notify = notify::NotifyClient::new(&cfg.notify);
         let mut notify_rx = events_tx.subscribe();
+        let api_token = cfg.token.clone();
+        let api_base = cfg.notify.action_base_url.clone().unwrap_or_else(|| {
+            let scheme = if cfg.tls_enabled() { "https" } else { "http" };
+            let host = local_ip_address::local_ip()
+                .map(|ip| ip.to_string())
+                .unwrap_or_else(|_| "localhost".to_string());
+            format!("{scheme}://{host}:{http_port}")
+        });
         tokio::spawn(async move {
             while let Ok((_, _, json)) = notify_rx.recv().await {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
                     match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
                         "approval_pending" => {
                             let tool_raw = v["tool_name"].as_str().unwrap_or("tool");
-                            let _ = notify
-                                .publish("Claude needs approval", tool_raw, "default", &["warning"])
-                                .await;
+                            let tool_use_id = v["tool_use_id"].as_str().unwrap_or("");
+                            if !tool_use_id.is_empty()
+                                && tool_use_id
+                                    .bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                            {
+                                let allow_sig =
+                                    http::approval_sig(&api_token, tool_use_id, "allow");
+                                let deny_sig = http::approval_sig(&api_token, tool_use_id, "deny");
+                                let actions = format!(
+                                    "http, Allow, {api_base}/approve/{tool_use_id}/allow?sig={allow_sig}, method=POST; \
+                                     http, Deny, {api_base}/approve/{tool_use_id}/deny?sig={deny_sig}, method=POST"
+                                );
+                                let _ = notify
+                                    .publish_approval("Claude needs approval", tool_raw, &actions)
+                                    .await;
+                            } else {
+                                let _ = notify
+                                    .publish(
+                                        "Claude needs approval",
+                                        tool_raw,
+                                        "default",
+                                        &["warning"],
+                                    )
+                                    .await;
+                            }
                             let tool = crate::notify::html_escape(tool_raw);
                             let _ = notify
                                 .send_telegram(&format!("⚠️ Claude needs approval: {tool}"))
@@ -368,6 +405,7 @@ async fn main() -> Result<()> {
     }
 
     // WebSocket server
+    let tls_for_http = tls_acceptor.clone();
     tokio::spawn(ws::serve(
         cfg.ws_port,
         cfg.token.clone(),
@@ -379,6 +417,15 @@ async fn main() -> Result<()> {
         cfg.max_concurrent_sessions,
         cfg.clone(),
         tls_acceptor,
+    ));
+
+    // HTTP API for ntfy action button callbacks (approve/deny)
+    tokio::spawn(http::serve(
+        http_port,
+        cfg.token.clone(),
+        pending.clone(),
+        buffered.clone(),
+        tls_for_http,
     ));
 
     // Stdin fallback approvals (useful for debugging without a WS client)
