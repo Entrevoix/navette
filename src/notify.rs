@@ -161,6 +161,7 @@ mod tests {
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
             webhook_url,
+            action_base_url: None,
         }
     }
 
