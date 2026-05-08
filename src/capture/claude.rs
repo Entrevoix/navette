@@ -38,7 +38,6 @@ pub async fn run_claude(prompt: &str) -> Result<String> {
         );
     }
 
-    let stdout = String::from_utf8(output.stdout)
-        .context("claude returned non-UTF8 output")?;
+    let stdout = String::from_utf8(output.stdout).context("claude returned non-UTF8 output")?;
     Ok(stdout)
 }

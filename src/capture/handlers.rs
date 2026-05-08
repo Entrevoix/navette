@@ -103,7 +103,11 @@ pub async fn handle_idea(text: &str, sync_folder: &str) -> Result<CaptureRespons
 
     let title = extract_h1(&markdown).unwrap_or_else(|| "untitled".to_string());
     let slug = slugify(&title);
-    let final_slug = if slug.is_empty() { "untitled".into() } else { slug };
+    let final_slug = if slug.is_empty() {
+        "untitled".into()
+    } else {
+        slug
+    };
 
     let dir = Path::new(sync_folder).join("Ideas");
     ensure_dir(&dir)?;
@@ -163,8 +167,8 @@ pub async fn promote_idea(filepath: &str, status: &str) -> Result<CaptureRespons
     if !["seedling", "developing", "mature"].contains(&status) {
         anyhow::bail!("invalid status: {status} (expected seedling|developing|mature)");
     }
-    let content = std::fs::read_to_string(filepath)
-        .with_context(|| format!("failed to read {filepath}"))?;
+    let content =
+        std::fs::read_to_string(filepath).with_context(|| format!("failed to read {filepath}"))?;
     let updated = rewrite_frontmatter_field(&content, "status", status)?;
     write_atomic(Path::new(filepath), &updated)?;
     Ok(CaptureResponse {
@@ -214,8 +218,7 @@ fn today_iso() -> String {
 }
 
 fn ensure_dir(dir: &Path) -> Result<()> {
-    std::fs::create_dir_all(dir)
-        .with_context(|| format!("failed to create {}", dir.display()))
+    std::fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))
 }
 
 fn write_atomic(path: &Path, content: &str) -> Result<()> {
@@ -439,7 +442,10 @@ mod tests {
             extract_frontmatter_field(md, "name"),
             Some("Jane Doe".into())
         );
-        assert_eq!(extract_frontmatter_field(md, "company"), Some("Acme".into()));
+        assert_eq!(
+            extract_frontmatter_field(md, "company"),
+            Some("Acme".into())
+        );
         assert_eq!(extract_frontmatter_field(md, "missing"), None);
     }
 
@@ -474,7 +480,10 @@ mod tests {
         let slug = slugify("中文标题");
         // Don't assert exact output — deunicode versions vary — just verify
         // we got something non-empty and ASCII.
-        assert!(!slug.is_empty(), "expected non-empty slug for Chinese input");
+        assert!(
+            !slug.is_empty(),
+            "expected non-empty slug for Chinese input"
+        );
         assert!(
             slug.chars().all(|c| c.is_ascii()),
             "slug must be ASCII: {slug:?}"
@@ -549,7 +558,8 @@ mod tests {
     fn rewrite_frontmatter_preserves_body_with_horizontal_rules() {
         // Body contains its own `---` lines. The naive find("\n---") would
         // mis-cut here. The line-aware parser must NOT.
-        let body = "# Title\n\nIntro.\n\n---\n\nA section after a horizontal rule.\n\n---\n\nAnother.\n";
+        let body =
+            "# Title\n\nIntro.\n\n---\n\nA section after a horizontal rule.\n\n---\n\nAnother.\n";
         let md = format!("---\nstatus: seedling\n---\n{body}");
         let out = rewrite_frontmatter_field(&md, "status", "developing").unwrap();
 
@@ -558,7 +568,10 @@ mod tests {
         assert!(!out.contains("status: seedling"));
 
         // Body byte-identical after the closing fence.
-        let body_out = out.split("\n---\n").nth(1).expect("expected body after fence");
+        let body_out = out
+            .split("\n---\n")
+            .nth(1)
+            .expect("expected body after fence");
         assert!(
             body_out.starts_with("# Title"),
             "body got mis-cut: {body_out:?}"
@@ -570,8 +583,8 @@ mod tests {
     #[test]
     fn rewrite_frontmatter_rejects_newlines_in_value() {
         let md = "---\nstatus: seedling\n---\n# T\n";
-        let err = rewrite_frontmatter_field(md, "status", "developing\ninjected: payload")
-            .unwrap_err();
+        let err =
+            rewrite_frontmatter_field(md, "status", "developing\ninjected: payload").unwrap_err();
         assert!(err.to_string().contains("newlines"));
     }
 
