@@ -1,6 +1,7 @@
 // Copyright (C) 2025 Entrevoix, Inc.
 // SPDX-License-Identifier: AGPL-3.0-only
 
+mod capture;
 mod claude;
 mod config;
 mod db;

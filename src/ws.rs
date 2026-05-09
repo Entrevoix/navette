@@ -20,6 +20,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
+use crate::capture;
 use crate::config::Config;
 use crate::db;
 use crate::{BufferedDecisions, Decision, PendingApprovals, Sessions};
@@ -31,6 +32,25 @@ pub(crate) fn is_valid_agent(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+fn capture_ok_response(request_id: &str, resp: &capture::CaptureResponse) -> Value {
+    serde_json::json!({
+        "type": "capture_response",
+        "request_id": request_id,
+        "status": "ok",
+        "filepath": resp.filepath,
+        "preview_markdown": resp.preview_markdown,
+    })
+}
+
+fn capture_error_response(request_id: &str, error: &str) -> Value {
+    serde_json::json!({
+        "type": "capture_response",
+        "request_id": request_id,
+        "status": "error",
+        "error": error,
+    })
 }
 
 pub fn load_tls_acceptor(cfg: &Config) -> Result<Option<TlsAcceptor>> {
@@ -1386,6 +1406,144 @@ where
                                         break;
                                     }
                                 }
+                            } else if msg_type == "capture/idea" {
+                                let request_id = v
+                                    .get("request_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let text = v
+                                    .get("text")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let response = match cfg.carnet.sync_folder.clone() {
+                                    None => capture_error_response(
+                                        &request_id,
+                                        "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                    ),
+                                    Some(folder) => {
+                                        match capture::handlers::handle_idea(&text, &folder).await {
+                                            Ok(resp) => capture_ok_response(&request_id, &resp),
+                                            Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                        }
+                                    }
+                                };
+                                if let Ok(s) = serde_json::to_string(&response) {
+                                    if sink.send(Message::Text(s)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "capture/journal" {
+                                let request_id = v
+                                    .get("request_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let transcript = v
+                                    .get("transcript")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let response = match cfg.carnet.sync_folder.clone() {
+                                    None => capture_error_response(
+                                        &request_id,
+                                        "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                    ),
+                                    Some(folder) => {
+                                        match capture::handlers::handle_journal(&transcript, &folder).await {
+                                            Ok(resp) => capture_ok_response(&request_id, &resp),
+                                            Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                        }
+                                    }
+                                };
+                                if let Ok(s) = serde_json::to_string(&response) {
+                                    if sink.send(Message::Text(s)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "capture/person" {
+                                let request_id = v
+                                    .get("request_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let ocr_result = v
+                                    .get("ocr_result")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let context = v
+                                    .get("context")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let response = match cfg.carnet.sync_folder.clone() {
+                                    None => capture_error_response(
+                                        &request_id,
+                                        "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                    ),
+                                    Some(folder) => {
+                                        match capture::handlers::handle_person(&ocr_result, &context, &folder).await {
+                                            Ok(resp) => capture_ok_response(&request_id, &resp),
+                                            Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                        }
+                                    }
+                                };
+                                if let Ok(s) = serde_json::to_string(&response) {
+                                    if sink.send(Message::Text(s)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "ping" {
+                                let request_id = v
+                                    .get("request_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let server_ts = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs_f64();
+                                let response = serde_json::json!({
+                                    "type": "pong",
+                                    "request_id": request_id,
+                                    "server_ts": server_ts,
+                                });
+                                if let Ok(s) = serde_json::to_string(&response) {
+                                    if sink.send(Message::Text(s)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            } else if msg_type == "capture/idea/promote" {
+                                let request_id = v
+                                    .get("request_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let filepath = v
+                                    .get("filepath")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let status = v
+                                    .get("status")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let response = if filepath.is_empty() {
+                                    capture_error_response(&request_id, "missing filepath")
+                                } else {
+                                    match capture::handlers::promote_idea(&filepath, &status).await {
+                                        Ok(resp) => capture_ok_response(&request_id, &resp),
+                                        Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                    }
+                                };
+                                if let Ok(s) = serde_json::to_string(&response) {
+                                    if sink.send(Message::Text(s)).await.is_err() {
+                                        break;
+                                    }
+                                }
                             } else {
                                 handle_input(&v, &client_id, &pending, &buffered).await;
                             }
@@ -1643,6 +1801,7 @@ mod tests {
             tls_key_path: None,
             auto_compact_threshold: None,
             mosh_enabled: false,
+            carnet: crate::config::CarnetConfig::default(),
         };
         assert!(load_tls_acceptor(&cfg).unwrap().is_none());
     }
@@ -1674,6 +1833,7 @@ mod tests {
             tls_key_path: Some(key.to_string_lossy().into_owned()),
             auto_compact_threshold: None,
             mosh_enabled: false,
+            carnet: crate::config::CarnetConfig::default(),
         };
         assert!(load_tls_acceptor(&cfg).unwrap().is_some());
 

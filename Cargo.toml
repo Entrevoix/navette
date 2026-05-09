@@ -39,6 +39,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio-rustls = "0.26"
 rustls-pemfile = "2"
 rcgen = "0.13"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+deunicode = "1"
 
 [dev-dependencies]
 tempfile = "3"

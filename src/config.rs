@@ -22,6 +22,13 @@ pub struct NotifyConfig {
     pub action_base_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct CarnetConfig {
+    /// Filesystem path where Carnet writes captured notes (Ideas/, Journal/,
+    /// People/). When `None`, capture/* WS messages return an error.
+    pub sync_folder: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub token: String,
@@ -36,6 +43,7 @@ pub struct Config {
     pub auto_compact_threshold: Option<u8>,
     #[allow(dead_code)]
     pub mosh_enabled: bool,
+    pub carnet: CarnetConfig,
 }
 
 impl Config {
@@ -132,6 +140,14 @@ pub fn load_or_create() -> Result<Config> {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let carnet_sync_folder = table
+            .get("carnet")
+            .and_then(|v| v.as_table())
+            .and_then(|t| t.get("sync_folder"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
         // Generate and persist ntfy_topic on first access for existing configs.
         // Atomic write: build new content, write to .tmp, fsync, rename.
         let ntfy_topic_raw = table
@@ -172,6 +188,9 @@ pub fn load_or_create() -> Result<Config> {
             tls_key_path,
             auto_compact_threshold,
             mosh_enabled,
+            carnet: CarnetConfig {
+                sync_folder: carnet_sync_folder,
+            },
         });
     }
 
@@ -190,7 +209,7 @@ pub fn load_or_create() -> Result<Config> {
     let key_str = key_path.to_string_lossy();
 
     let content = format!(
-        "token = \"{token}\"\nws_port = 7878\napproval_ttl_secs = 300\napproval_warn_before_secs = 30\nmax_concurrent_sessions = 4\nntfy_base_url = \"https://ntfy.sh\"\nntfy_topic = \"{ntfy_topic}\"\nntfy_token = \"\"\ntelegram_bot_token = \"\"\ntelegram_chat_id = \"\"\ntls_cert_path = \"{cert_str}\"\ntls_key_path = \"{key_str}\"\n"
+        "token = \"{token}\"\nws_port = 7878\napproval_ttl_secs = 300\napproval_warn_before_secs = 30\nmax_concurrent_sessions = 4\nntfy_base_url = \"https://ntfy.sh\"\nntfy_topic = \"{ntfy_topic}\"\nntfy_token = \"\"\ntelegram_bot_token = \"\"\ntelegram_chat_id = \"\"\ntls_cert_path = \"{cert_str}\"\ntls_key_path = \"{key_str}\"\n\n[carnet]\n# sync_folder = \"/path/to/Obsidian/Carnet\"\n"
     );
 
     std::fs::OpenOptions::new()
@@ -231,6 +250,7 @@ pub fn load_or_create() -> Result<Config> {
         tls_key_path: Some(key_str.into_owned()),
         auto_compact_threshold: None,
         mosh_enabled: false,
+        carnet: CarnetConfig::default(),
     })
 }
 
@@ -351,6 +371,7 @@ mod tests {
             tls_key_path: None,
             auto_compact_threshold: None,
             mosh_enabled: false,
+            carnet: CarnetConfig::default(),
         }
     }
 
