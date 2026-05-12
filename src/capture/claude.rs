@@ -23,7 +23,15 @@ const CLAUDE_TIMEOUT: Duration = Duration::from_secs(120);
 /// The CLI is expected to be on PATH. Stderr is captured for error reporting
 /// but not returned on success. Non-zero exit codes propagate as errors.
 pub async fn run_claude(prompt: &str) -> Result<String> {
-    let fut = Command::new("claude").arg("-p").arg(prompt).output();
+    // kill_on_drop(true): if the calling future is dropped (e.g. WS connection
+    // closed and the spawned capture task is aborted), SIGKILL the subprocess
+    // instead of orphaning it. Without this, disconnected clients can leave
+    // `claude -p` running for up to CLAUDE_TIMEOUT burning tokens.
+    let fut = Command::new("claude")
+        .arg("-p")
+        .arg(prompt)
+        .kill_on_drop(true)
+        .output();
     let output = timeout(CLAUDE_TIMEOUT, fut)
         .await
         .with_context(|| format!("claude -p timed out after {}s", CLAUDE_TIMEOUT.as_secs()))?

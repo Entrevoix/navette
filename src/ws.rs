@@ -363,9 +363,13 @@ where
                         }
                     }
                     None => {
-                        // All senders dropped — connection is shutting down.
-                        // Let the src.next() arm see Close/None and exit
-                        // through the existing path.
+                        // Unreachable while handle_ws holds reply_tx on its
+                        // stack — but if a future refactor shortens that
+                        // lifetime, `recv()` would return Ready(None) every
+                        // poll and the select! would hot-spin. Break instead
+                        // of falling through silently.
+                        tracing::error!(%client_id, "reply_rx closed unexpectedly; closing WS");
+                        break;
                     }
                 }
             }
