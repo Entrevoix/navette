@@ -133,6 +133,11 @@ pub async fn prepare_idea(text: &str, sync_folder: &str) -> Result<(PathBuf, Str
 
 /// Atomically write the prepared idea markdown to disk. Only call this AFTER
 /// the client has ack'd the response — see `prepare_idea`.
+///
+/// **Failure visibility**: a failure here is reported only via `tracing` on
+/// the daemon; the client has already received an OK ack. Acceptable trade
+/// for the dup-free invariant. If client-side visibility is needed, the
+/// caller must emit a follow-up event before returning.
 pub fn persist_idea(filepath: &Path, markdown: &str) -> Result<()> {
     write_atomic(filepath, markdown)
 }
@@ -174,6 +179,8 @@ pub async fn prepare_journal(
 }
 
 /// Atomically write the merged journal markdown. Only call AFTER ack.
+///
+/// **Failure visibility**: see [`persist_idea`] — trace-only, client already ack'd.
 pub fn persist_journal(filepath: &Path, final_markdown: &str) -> Result<()> {
     write_atomic(filepath, final_markdown)
 }
@@ -234,6 +241,8 @@ pub async fn prepare_person(
 }
 
 /// Atomically write the prepared person markdown. Only call AFTER ack.
+///
+/// **Failure visibility**: see [`persist_idea`] — trace-only, client already ack'd.
 pub fn persist_person(filepath: &Path, markdown: &str) -> Result<()> {
     write_atomic(filepath, markdown)
 }
@@ -669,6 +678,34 @@ mod tests {
         let merged = "---\ndate: 2026-05-11\n---\n# A\n\n## 14:00\n\n# B\n";
         persist_journal(&path, merged).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), merged);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn prepare_idea_writes_nothing_when_run_claude_fails() {
+        // Regression guard for the ack-before-persist invariant: if `run_claude`
+        // fails inside `prepare_idea`, no FS side effect (no Ideas/ dir, no .md)
+        // should appear. The test is meaningful only when `claude` is NOT on
+        // PATH — skipped otherwise to avoid false greens on dev machines.
+        if std::process::Command::new("claude")
+            .arg("--version")
+            .output()
+            .is_ok()
+        {
+            eprintln!("skipping: `claude` is on PATH; test would hit the success path");
+            return;
+        }
+        let dir = std::env::temp_dir().join("carnet-prepare-noclaude-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let result = prepare_idea("hi there", dir.to_str().unwrap()).await;
+        assert!(result.is_err(), "expected run_claude failure");
+        assert!(
+            !dir.join("Ideas").exists(),
+            "no FS side effect on Claude failure"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

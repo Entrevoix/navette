@@ -1463,6 +1463,7 @@ where
                                             return;
                                         }
                                     };
+                                    // Keep `request_id` owned for the JoinError tracing below.
                                     let rid = request_id.clone();
                                     let inner = tokio::spawn(async move {
                                         match folder {
@@ -1486,10 +1487,12 @@ where
                                             (capture_error_response(&request_id, "internal error"), None)
                                         }
                                     };
-                                    let send_ok = if let Ok(s) = serde_json::to_string(&response) {
-                                        tx.send(Message::Text(s)).await.is_ok()
-                                    } else {
-                                        false
+                                    let send_ok = match serde_json::to_string(&response) {
+                                        Ok(s) => tx.send(Message::Text(s)).await.is_ok(),
+                                        Err(e) => {
+                                            tracing::error!(?e, request_id = %request_id, "capture response serialization failed (unreachable)");
+                                            false
+                                        }
                                     };
                                     if send_ok {
                                         if let Some((path, md)) = persist {
@@ -1524,6 +1527,7 @@ where
                                             return;
                                         }
                                     };
+                                    // Keep `request_id` owned for the JoinError tracing below.
                                     let rid = request_id.clone();
                                     let inner = tokio::spawn(async move {
                                         match folder {
@@ -1547,10 +1551,12 @@ where
                                             (capture_error_response(&request_id, "internal error"), None)
                                         }
                                     };
-                                    let send_ok = if let Ok(s) = serde_json::to_string(&response) {
-                                        tx.send(Message::Text(s)).await.is_ok()
-                                    } else {
-                                        false
+                                    let send_ok = match serde_json::to_string(&response) {
+                                        Ok(s) => tx.send(Message::Text(s)).await.is_ok(),
+                                        Err(e) => {
+                                            tracing::error!(?e, request_id = %request_id, "capture response serialization failed (unreachable)");
+                                            false
+                                        }
                                     };
                                     if send_ok {
                                         if let Some((path, md)) = persist {
@@ -1590,6 +1596,7 @@ where
                                             return;
                                         }
                                     };
+                                    // Keep `request_id` owned for the JoinError tracing below.
                                     let rid = request_id.clone();
                                     let inner = tokio::spawn(async move {
                                         match folder {
@@ -1613,10 +1620,12 @@ where
                                             (capture_error_response(&request_id, "internal error"), None)
                                         }
                                     };
-                                    let send_ok = if let Ok(s) = serde_json::to_string(&response) {
-                                        tx.send(Message::Text(s)).await.is_ok()
-                                    } else {
-                                        false
+                                    let send_ok = match serde_json::to_string(&response) {
+                                        Ok(s) => tx.send(Message::Text(s)).await.is_ok(),
+                                        Err(e) => {
+                                            tracing::error!(?e, request_id = %request_id, "capture response serialization failed (unreachable)");
+                                            false
+                                        }
                                     };
                                     if send_ok {
                                         if let Some((path, md)) = persist {
@@ -1675,6 +1684,7 @@ where
                                             return;
                                         }
                                     };
+                                    // Keep `request_id` owned for the JoinError tracing below.
                                     let rid = request_id.clone();
                                     let inner = tokio::spawn(async move {
                                         if filepath.is_empty() {
