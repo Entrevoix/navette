@@ -330,6 +330,14 @@ where
         .context("caught-up send failed")?;
     tracing::info!(%client_id, since, replayed = rows.len(), "replay complete");
 
+    // ── Phase 3 prelude: per-connection reply channel ───────────────────────
+    // Capture handlers run as their own tokio tasks and push replies into
+    // this mpsc; the live select! drains it into `sink`. Without this the
+    // 5-30s `claude -p` await would stall both event forwarding and the
+    // next inbound frame for THIS connection. (Other connections are fine —
+    // each gets its own `handle_ws` task in `serve()`.)
+    let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel::<Message>(32);
+
     // ── Phase 3: Bidirectional live loop ─────────────────────────────────────
     loop {
         tokio::select! {
@@ -345,6 +353,20 @@ where
                         tracing::warn!(%client_id, lagged = n, "WS client too slow, events dropped");
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            maybe_reply = reply_rx.recv() => {
+                match maybe_reply {
+                    Some(msg) => {
+                        if sink.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => {
+                        // All senders dropped — connection is shutting down.
+                        // Let the src.next() arm see Close/None and exit
+                        // through the existing path.
+                    }
                 }
             }
             msg = src.next() => {
@@ -1417,23 +1439,25 @@ where
                                     .and_then(|t| t.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                let response = match cfg.carnet.sync_folder.clone() {
-                                    None => capture_error_response(
-                                        &request_id,
-                                        "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
-                                    ),
-                                    Some(folder) => {
-                                        match capture::handlers::handle_idea(&text, &folder).await {
-                                            Ok(resp) => capture_ok_response(&request_id, &resp),
-                                            Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                let folder = cfg.carnet.sync_folder.clone();
+                                let tx = reply_tx.clone();
+                                tokio::spawn(async move {
+                                    let response = match folder {
+                                        None => capture_error_response(
+                                            &request_id,
+                                            "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                        ),
+                                        Some(folder) => {
+                                            match capture::handlers::handle_idea(&text, &folder).await {
+                                                Ok(resp) => capture_ok_response(&request_id, &resp),
+                                                Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                            }
                                         }
+                                    };
+                                    if let Ok(s) = serde_json::to_string(&response) {
+                                        let _ = tx.send(Message::Text(s)).await;
                                     }
-                                };
-                                if let Ok(s) = serde_json::to_string(&response) {
-                                    if sink.send(Message::Text(s)).await.is_err() {
-                                        break;
-                                    }
-                                }
+                                });
                             } else if msg_type == "capture/journal" {
                                 let request_id = v
                                     .get("request_id")
@@ -1445,23 +1469,25 @@ where
                                     .and_then(|t| t.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                let response = match cfg.carnet.sync_folder.clone() {
-                                    None => capture_error_response(
-                                        &request_id,
-                                        "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
-                                    ),
-                                    Some(folder) => {
-                                        match capture::handlers::handle_journal(&transcript, &folder).await {
-                                            Ok(resp) => capture_ok_response(&request_id, &resp),
-                                            Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                let folder = cfg.carnet.sync_folder.clone();
+                                let tx = reply_tx.clone();
+                                tokio::spawn(async move {
+                                    let response = match folder {
+                                        None => capture_error_response(
+                                            &request_id,
+                                            "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                        ),
+                                        Some(folder) => {
+                                            match capture::handlers::handle_journal(&transcript, &folder).await {
+                                                Ok(resp) => capture_ok_response(&request_id, &resp),
+                                                Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                            }
                                         }
+                                    };
+                                    if let Ok(s) = serde_json::to_string(&response) {
+                                        let _ = tx.send(Message::Text(s)).await;
                                     }
-                                };
-                                if let Ok(s) = serde_json::to_string(&response) {
-                                    if sink.send(Message::Text(s)).await.is_err() {
-                                        break;
-                                    }
-                                }
+                                });
                             } else if msg_type == "capture/person" {
                                 let request_id = v
                                     .get("request_id")
@@ -1478,23 +1504,25 @@ where
                                     .and_then(|t| t.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                let response = match cfg.carnet.sync_folder.clone() {
-                                    None => capture_error_response(
-                                        &request_id,
-                                        "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
-                                    ),
-                                    Some(folder) => {
-                                        match capture::handlers::handle_person(&ocr_result, &context, &folder).await {
-                                            Ok(resp) => capture_ok_response(&request_id, &resp),
-                                            Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                let folder = cfg.carnet.sync_folder.clone();
+                                let tx = reply_tx.clone();
+                                tokio::spawn(async move {
+                                    let response = match folder {
+                                        None => capture_error_response(
+                                            &request_id,
+                                            "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                        ),
+                                        Some(folder) => {
+                                            match capture::handlers::handle_person(&ocr_result, &context, &folder).await {
+                                                Ok(resp) => capture_ok_response(&request_id, &resp),
+                                                Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                            }
                                         }
+                                    };
+                                    if let Ok(s) = serde_json::to_string(&response) {
+                                        let _ = tx.send(Message::Text(s)).await;
                                     }
-                                };
-                                if let Ok(s) = serde_json::to_string(&response) {
-                                    if sink.send(Message::Text(s)).await.is_err() {
-                                        break;
-                                    }
-                                }
+                                });
                             } else if msg_type == "ping" {
                                 let request_id = v
                                     .get("request_id")
@@ -1531,19 +1559,20 @@ where
                                     .and_then(|t| t.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                let response = if filepath.is_empty() {
-                                    capture_error_response(&request_id, "missing filepath")
-                                } else {
-                                    match capture::handlers::promote_idea(&filepath, &status).await {
-                                        Ok(resp) => capture_ok_response(&request_id, &resp),
-                                        Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                let tx = reply_tx.clone();
+                                tokio::spawn(async move {
+                                    let response = if filepath.is_empty() {
+                                        capture_error_response(&request_id, "missing filepath")
+                                    } else {
+                                        match capture::handlers::promote_idea(&filepath, &status).await {
+                                            Ok(resp) => capture_ok_response(&request_id, &resp),
+                                            Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                        }
+                                    };
+                                    if let Ok(s) = serde_json::to_string(&response) {
+                                        let _ = tx.send(Message::Text(s)).await;
                                     }
-                                };
-                                if let Ok(s) = serde_json::to_string(&response) {
-                                    if sink.send(Message::Text(s)).await.is_err() {
-                                        break;
-                                    }
-                                }
+                                });
                             } else {
                                 handle_input(&v, &client_id, &pending, &buffered).await;
                             }
