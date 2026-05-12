@@ -22,11 +22,26 @@ pub struct NotifyConfig {
     pub action_base_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CarnetConfig {
     /// Filesystem path where Carnet writes captured notes (Ideas/, Journal/,
     /// People/). When `None`, capture/* WS messages return an error.
     pub sync_folder: Option<String>,
+    /// Per-WS-connection cap on concurrent capture handlers. Each in-flight
+    /// `capture/*` spawns a `claude -p` subprocess; without this cap, a buggy
+    /// or malicious authenticated client can spawn unbounded subprocesses.
+    /// Default 4: enough for power users (mobile + desktop concurrent),
+    /// tight enough to bound the blast radius.
+    pub max_concurrent_captures: usize,
+}
+
+impl Default for CarnetConfig {
+    fn default() -> Self {
+        Self {
+            sync_folder: None,
+            max_concurrent_captures: 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -140,13 +155,18 @@ pub fn load_or_create() -> Result<Config> {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let carnet_sync_folder = table
-            .get("carnet")
-            .and_then(|v| v.as_table())
+        let carnet_table = table.get("carnet").and_then(|v| v.as_table());
+        let carnet_sync_folder = carnet_table
             .and_then(|t| t.get("sync_folder"))
             .and_then(|v| v.as_str())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
+        let carnet_max_concurrent_captures = carnet_table
+            .and_then(|t| t.get("max_concurrent_captures"))
+            .and_then(|v| v.as_integer())
+            .filter(|v| *v > 0)
+            .map(|v| v as usize)
+            .unwrap_or(4);
 
         // Generate and persist ntfy_topic on first access for existing configs.
         // Atomic write: build new content, write to .tmp, fsync, rename.
@@ -190,6 +210,7 @@ pub fn load_or_create() -> Result<Config> {
             mosh_enabled,
             carnet: CarnetConfig {
                 sync_folder: carnet_sync_folder,
+                max_concurrent_captures: carnet_max_concurrent_captures,
             },
         });
     }
@@ -209,7 +230,7 @@ pub fn load_or_create() -> Result<Config> {
     let key_str = key_path.to_string_lossy();
 
     let content = format!(
-        "token = \"{token}\"\nws_port = 7878\napproval_ttl_secs = 300\napproval_warn_before_secs = 30\nmax_concurrent_sessions = 4\nntfy_base_url = \"https://ntfy.sh\"\nntfy_topic = \"{ntfy_topic}\"\nntfy_token = \"\"\ntelegram_bot_token = \"\"\ntelegram_chat_id = \"\"\ntls_cert_path = \"{cert_str}\"\ntls_key_path = \"{key_str}\"\n\n[carnet]\n# sync_folder = \"/path/to/Obsidian/Carnet\"\n"
+        "token = \"{token}\"\nws_port = 7878\napproval_ttl_secs = 300\napproval_warn_before_secs = 30\nmax_concurrent_sessions = 4\nntfy_base_url = \"https://ntfy.sh\"\nntfy_topic = \"{ntfy_topic}\"\nntfy_token = \"\"\ntelegram_bot_token = \"\"\ntelegram_chat_id = \"\"\ntls_cert_path = \"{cert_str}\"\ntls_key_path = \"{key_str}\"\n\n[carnet]\n# sync_folder = \"/path/to/Obsidian/Carnet\"\n# max_concurrent_captures = 4\n"
     );
 
     std::fs::OpenOptions::new()
@@ -507,6 +528,44 @@ mod tests {
         assert!(cfg.tls_enabled());
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn carnet_config_default_max_concurrent_captures_is_4() {
+        let c = CarnetConfig::default();
+        assert_eq!(c.max_concurrent_captures, 4);
+        assert!(c.sync_folder.is_none());
+    }
+
+    #[test]
+    fn toml_carnet_max_concurrent_captures_override() {
+        let content = "token = \"t\"\n[carnet]\nmax_concurrent_captures = 8\n";
+        let table: toml::Table = toml::from_str(content).unwrap();
+        let parsed = table
+            .get("carnet")
+            .and_then(|v| v.as_table())
+            .and_then(|t| t.get("max_concurrent_captures"))
+            .and_then(|v| v.as_integer())
+            .filter(|v| *v > 0)
+            .map(|v| v as usize)
+            .unwrap_or(4);
+        assert_eq!(parsed, 8);
+    }
+
+    #[test]
+    fn toml_carnet_max_concurrent_captures_zero_falls_back_to_default() {
+        // Zero would deadlock the semaphore — guard rejects it.
+        let content = "token = \"t\"\n[carnet]\nmax_concurrent_captures = 0\n";
+        let table: toml::Table = toml::from_str(content).unwrap();
+        let parsed = table
+            .get("carnet")
+            .and_then(|v| v.as_table())
+            .and_then(|t| t.get("max_concurrent_captures"))
+            .and_then(|v| v.as_integer())
+            .filter(|v| *v > 0)
+            .map(|v| v as usize)
+            .unwrap_or(4);
+        assert_eq!(parsed, 4);
     }
 
     #[test]

@@ -10,7 +10,7 @@
 //!      People/Firstname-Lastname.md).
 //!   5. Returns a `CaptureResponse` carrying filepath + preview markdown.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::Local;
@@ -92,7 +92,10 @@ Business card OCR: {OCR_INPUT}
 Context: {CONTEXT_INPUT}
 "#;
 
-pub async fn handle_idea(text: &str, sync_folder: &str) -> Result<CaptureResponse> {
+/// Compute the response for a `capture/idea` request WITHOUT writing to disk.
+/// Returns `(filepath, markdown, response)` so the caller can ack the client
+/// first and only persist after the ack succeeds. See `persist_idea`.
+pub async fn prepare_idea(text: &str, sync_folder: &str) -> Result<(PathBuf, String, CaptureResponse)> {
     let today = today_iso();
     let prompt = IDEA_PROMPT
         .replace("{TODAY}", &today)
@@ -121,15 +124,27 @@ pub async fn handle_idea(text: &str, sync_folder: &str) -> Result<CaptureRespons
         anyhow::bail!("more than 99 ideas with slug {final_slug} — pick a more distinctive title");
     }
 
-    write_atomic(&filepath, &markdown)?;
-
-    Ok(CaptureResponse {
+    let response = CaptureResponse {
         filepath: filepath.to_string_lossy().into_owned(),
-        preview_markdown: markdown,
-    })
+        preview_markdown: markdown.clone(),
+    };
+    Ok((filepath, markdown, response))
 }
 
-pub async fn handle_journal(transcript: &str, sync_folder: &str) -> Result<CaptureResponse> {
+/// Atomically write the prepared idea markdown to disk. Only call this AFTER
+/// the client has ack'd the response — see `prepare_idea`.
+pub fn persist_idea(filepath: &Path, markdown: &str) -> Result<()> {
+    write_atomic(filepath, markdown)
+}
+
+/// Compute the response for a `capture/journal` request WITHOUT writing to
+/// disk. The append-vs-overwrite merge with the day's existing file happens
+/// here (it depends on a FS read, which is safe to do pre-ack). Returns
+/// `(filepath, final_markdown, response)`.
+pub async fn prepare_journal(
+    transcript: &str,
+    sync_folder: &str,
+) -> Result<(PathBuf, String, CaptureResponse)> {
     let today = today_iso();
     let prompt = JOURNAL_PROMPT
         .replace("{TODAY}", &today)
@@ -148,15 +163,19 @@ pub async fn handle_journal(transcript: &str, sync_folder: &str) -> Result<Captu
         let now = Local::now().format("%H:%M").to_string();
         append_journal_entry(&existing, &markdown, &now)
     } else {
-        markdown.clone()
+        markdown
     };
 
-    write_atomic(&filepath, &final_markdown)?;
-
-    Ok(CaptureResponse {
+    let response = CaptureResponse {
         filepath: filepath.to_string_lossy().into_owned(),
-        preview_markdown: final_markdown,
-    })
+        preview_markdown: final_markdown.clone(),
+    };
+    Ok((filepath, final_markdown, response))
+}
+
+/// Atomically write the merged journal markdown. Only call AFTER ack.
+pub fn persist_journal(filepath: &Path, final_markdown: &str) -> Result<()> {
+    write_atomic(filepath, final_markdown)
 }
 
 /// Rewrite the `status:` frontmatter field on an existing idea note. The body
@@ -177,11 +196,13 @@ pub async fn promote_idea(filepath: &str, status: &str) -> Result<CaptureRespons
     })
 }
 
-pub async fn handle_person(
+/// Compute the response for a `capture/person` request WITHOUT writing to
+/// disk. Returns `(filepath, markdown, response)`.
+pub async fn prepare_person(
     ocr_result: &str,
     context: &str,
     sync_folder: &str,
-) -> Result<CaptureResponse> {
+) -> Result<(PathBuf, String, CaptureResponse)> {
     let today = today_iso();
     let prompt = PERSON_PROMPT
         .replace("{TODAY}", &today)
@@ -205,12 +226,16 @@ pub async fn handle_person(
     ensure_dir(&dir)?;
     let filepath = dir.join(format!("{final_filename}.md"));
 
-    write_atomic(&filepath, &markdown)?;
-
-    Ok(CaptureResponse {
+    let response = CaptureResponse {
         filepath: filepath.to_string_lossy().into_owned(),
-        preview_markdown: markdown,
-    })
+        preview_markdown: markdown.clone(),
+    };
+    Ok((filepath, markdown, response))
+}
+
+/// Atomically write the prepared person markdown. Only call AFTER ack.
+pub fn persist_person(filepath: &Path, markdown: &str) -> Result<()> {
+    write_atomic(filepath, markdown)
 }
 
 fn today_iso() -> String {
@@ -619,5 +644,43 @@ mod tests {
         // The second entry's frontmatter `tags: [journal]` should NOT appear
         // a second time (we keep one `tags: [journal]` line, not two).
         assert_eq!(result.matches("tags: [journal]").count(), 1);
+    }
+
+    #[test]
+    fn persist_idea_writes_markdown_atomically() {
+        let dir = std::env::temp_dir().join("carnet-persist-idea-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.md");
+        let md = "---\ntags: [idea]\n---\n# Test\n\nbody\n";
+        persist_idea(&path, md).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), md);
+        // Atomic write should leave no .tmp residue.
+        assert!(!path.with_extension("md.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persist_journal_writes_merged_markdown() {
+        let dir = std::env::temp_dir().join("carnet-persist-journal-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-05-11.md");
+        let merged = "---\ndate: 2026-05-11\n---\n# A\n\n## 14:00\n\n# B\n";
+        persist_journal(&path, merged).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), merged);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persist_person_writes_markdown() {
+        let dir = std::env::temp_dir().join("carnet-persist-person-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Jane-Doe.md");
+        let md = "---\nname: Jane Doe\n---\n# Jane Doe\n";
+        persist_person(&path, md).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), md);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -16,7 +16,7 @@ use serde_json::Value;
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, oneshot, Semaphore};
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
@@ -337,6 +337,12 @@ where
     // next inbound frame for THIS connection. (Other connections are fine —
     // each gets its own `handle_ws` task in `serve()`.)
     let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel::<Message>(32);
+
+    // Bound concurrent in-flight capture handlers per connection. Each
+    // `capture/*` spawns a `claude -p` subprocess; without this, a buggy or
+    // malicious authenticated client can spawn unbounded subprocesses on a
+    // single connection. Operator-configurable via [carnet] max_concurrent_captures.
+    let capture_sema = Arc::new(Semaphore::new(cfg.carnet.max_concurrent_captures));
 
     // ── Phase 3: Bidirectional live loop ─────────────────────────────────────
     loop {
@@ -1445,21 +1451,52 @@ where
                                     .to_string();
                                 let folder = cfg.carnet.sync_folder.clone();
                                 let tx = reply_tx.clone();
+                                let sema = capture_sema.clone();
                                 tokio::spawn(async move {
-                                    let response = match folder {
-                                        None => capture_error_response(
-                                            &request_id,
-                                            "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
-                                        ),
-                                        Some(folder) => {
-                                            match capture::handlers::handle_idea(&text, &folder).await {
-                                                Ok(resp) => capture_ok_response(&request_id, &resp),
-                                                Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                    let _permit = match sema.try_acquire_owned() {
+                                        Ok(p) => p,
+                                        Err(_) => {
+                                            let r = capture_error_response(&request_id, "capture concurrency limit reached");
+                                            if let Ok(s) = serde_json::to_string(&r) {
+                                                let _ = tx.send(Message::Text(s)).await;
                                             }
+                                            return;
                                         }
                                     };
-                                    if let Ok(s) = serde_json::to_string(&response) {
-                                        let _ = tx.send(Message::Text(s)).await;
+                                    let rid = request_id.clone();
+                                    let inner = tokio::spawn(async move {
+                                        match folder {
+                                            None => (
+                                                capture_error_response(
+                                                    &rid,
+                                                    "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                                ),
+                                                None,
+                                            ),
+                                            Some(folder) => match capture::handlers::prepare_idea(&text, &folder).await {
+                                                Ok((path, md, resp)) => (capture_ok_response(&rid, &resp), Some((path, md))),
+                                                Err(e) => (capture_error_response(&rid, &e.to_string()), None),
+                                            },
+                                        }
+                                    });
+                                    let (response, persist) = match inner.await {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            tracing::error!(?e, request_id = %request_id, "capture/idea handler panicked or was cancelled");
+                                            (capture_error_response(&request_id, "internal error"), None)
+                                        }
+                                    };
+                                    let send_ok = if let Ok(s) = serde_json::to_string(&response) {
+                                        tx.send(Message::Text(s)).await.is_ok()
+                                    } else {
+                                        false
+                                    };
+                                    if send_ok {
+                                        if let Some((path, md)) = persist {
+                                            if let Err(e) = capture::handlers::persist_idea(&path, &md) {
+                                                tracing::error!(?e, "capture/idea persist failed after ack");
+                                            }
+                                        }
                                     }
                                 });
                             } else if msg_type == "capture/journal" {
@@ -1475,21 +1512,52 @@ where
                                     .to_string();
                                 let folder = cfg.carnet.sync_folder.clone();
                                 let tx = reply_tx.clone();
+                                let sema = capture_sema.clone();
                                 tokio::spawn(async move {
-                                    let response = match folder {
-                                        None => capture_error_response(
-                                            &request_id,
-                                            "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
-                                        ),
-                                        Some(folder) => {
-                                            match capture::handlers::handle_journal(&transcript, &folder).await {
-                                                Ok(resp) => capture_ok_response(&request_id, &resp),
-                                                Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                    let _permit = match sema.try_acquire_owned() {
+                                        Ok(p) => p,
+                                        Err(_) => {
+                                            let r = capture_error_response(&request_id, "capture concurrency limit reached");
+                                            if let Ok(s) = serde_json::to_string(&r) {
+                                                let _ = tx.send(Message::Text(s)).await;
                                             }
+                                            return;
                                         }
                                     };
-                                    if let Ok(s) = serde_json::to_string(&response) {
-                                        let _ = tx.send(Message::Text(s)).await;
+                                    let rid = request_id.clone();
+                                    let inner = tokio::spawn(async move {
+                                        match folder {
+                                            None => (
+                                                capture_error_response(
+                                                    &rid,
+                                                    "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                                ),
+                                                None,
+                                            ),
+                                            Some(folder) => match capture::handlers::prepare_journal(&transcript, &folder).await {
+                                                Ok((path, md, resp)) => (capture_ok_response(&rid, &resp), Some((path, md))),
+                                                Err(e) => (capture_error_response(&rid, &e.to_string()), None),
+                                            },
+                                        }
+                                    });
+                                    let (response, persist) = match inner.await {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            tracing::error!(?e, request_id = %request_id, "capture/journal handler panicked or was cancelled");
+                                            (capture_error_response(&request_id, "internal error"), None)
+                                        }
+                                    };
+                                    let send_ok = if let Ok(s) = serde_json::to_string(&response) {
+                                        tx.send(Message::Text(s)).await.is_ok()
+                                    } else {
+                                        false
+                                    };
+                                    if send_ok {
+                                        if let Some((path, md)) = persist {
+                                            if let Err(e) = capture::handlers::persist_journal(&path, &md) {
+                                                tracing::error!(?e, "capture/journal persist failed after ack");
+                                            }
+                                        }
                                     }
                                 });
                             } else if msg_type == "capture/person" {
@@ -1510,21 +1578,52 @@ where
                                     .to_string();
                                 let folder = cfg.carnet.sync_folder.clone();
                                 let tx = reply_tx.clone();
+                                let sema = capture_sema.clone();
                                 tokio::spawn(async move {
-                                    let response = match folder {
-                                        None => capture_error_response(
-                                            &request_id,
-                                            "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
-                                        ),
-                                        Some(folder) => {
-                                            match capture::handlers::handle_person(&ocr_result, &context, &folder).await {
-                                                Ok(resp) => capture_ok_response(&request_id, &resp),
-                                                Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                    let _permit = match sema.try_acquire_owned() {
+                                        Ok(p) => p,
+                                        Err(_) => {
+                                            let r = capture_error_response(&request_id, "capture concurrency limit reached");
+                                            if let Ok(s) = serde_json::to_string(&r) {
+                                                let _ = tx.send(Message::Text(s)).await;
                                             }
+                                            return;
                                         }
                                     };
-                                    if let Ok(s) = serde_json::to_string(&response) {
-                                        let _ = tx.send(Message::Text(s)).await;
+                                    let rid = request_id.clone();
+                                    let inner = tokio::spawn(async move {
+                                        match folder {
+                                            None => (
+                                                capture_error_response(
+                                                    &rid,
+                                                    "carnet sync_folder not configured (set [carnet] sync_folder in ~/.config/navetted/config.toml)",
+                                                ),
+                                                None,
+                                            ),
+                                            Some(folder) => match capture::handlers::prepare_person(&ocr_result, &context, &folder).await {
+                                                Ok((path, md, resp)) => (capture_ok_response(&rid, &resp), Some((path, md))),
+                                                Err(e) => (capture_error_response(&rid, &e.to_string()), None),
+                                            },
+                                        }
+                                    });
+                                    let (response, persist) = match inner.await {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            tracing::error!(?e, request_id = %request_id, "capture/person handler panicked or was cancelled");
+                                            (capture_error_response(&request_id, "internal error"), None)
+                                        }
+                                    };
+                                    let send_ok = if let Ok(s) = serde_json::to_string(&response) {
+                                        tx.send(Message::Text(s)).await.is_ok()
+                                    } else {
+                                        false
+                                    };
+                                    if send_ok {
+                                        if let Some((path, md)) = persist {
+                                            if let Err(e) = capture::handlers::persist_person(&path, &md) {
+                                                tracing::error!(?e, "capture/person persist failed after ack");
+                                            }
+                                        }
                                     }
                                 });
                             } else if msg_type == "ping" {
@@ -1564,13 +1663,34 @@ where
                                     .unwrap_or("")
                                     .to_string();
                                 let tx = reply_tx.clone();
+                                let sema = capture_sema.clone();
                                 tokio::spawn(async move {
-                                    let response = if filepath.is_empty() {
-                                        capture_error_response(&request_id, "missing filepath")
-                                    } else {
-                                        match capture::handlers::promote_idea(&filepath, &status).await {
-                                            Ok(resp) => capture_ok_response(&request_id, &resp),
-                                            Err(e) => capture_error_response(&request_id, &e.to_string()),
+                                    let _permit = match sema.try_acquire_owned() {
+                                        Ok(p) => p,
+                                        Err(_) => {
+                                            let r = capture_error_response(&request_id, "capture concurrency limit reached");
+                                            if let Ok(s) = serde_json::to_string(&r) {
+                                                let _ = tx.send(Message::Text(s)).await;
+                                            }
+                                            return;
+                                        }
+                                    };
+                                    let rid = request_id.clone();
+                                    let inner = tokio::spawn(async move {
+                                        if filepath.is_empty() {
+                                            capture_error_response(&rid, "missing filepath")
+                                        } else {
+                                            match capture::handlers::promote_idea(&filepath, &status).await {
+                                                Ok(resp) => capture_ok_response(&rid, &resp),
+                                                Err(e) => capture_error_response(&rid, &e.to_string()),
+                                            }
+                                        }
+                                    });
+                                    let response = match inner.await {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            tracing::error!(?e, request_id = %request_id, "capture/idea/promote handler panicked or was cancelled");
+                                            capture_error_response(&request_id, "internal error")
                                         }
                                     };
                                     if let Ok(s) = serde_json::to_string(&response) {
