@@ -95,7 +95,10 @@ Context: {CONTEXT_INPUT}
 /// Compute the response for a `capture/idea` request WITHOUT writing to disk.
 /// Returns `(filepath, markdown, response)` so the caller can ack the client
 /// first and only persist after the ack succeeds. See `persist_idea`.
-pub async fn prepare_idea(text: &str, sync_folder: &str) -> Result<(PathBuf, String, CaptureResponse)> {
+pub async fn prepare_idea(
+    text: &str,
+    sync_folder: &str,
+) -> Result<(PathBuf, String, CaptureResponse)> {
     let today = today_iso();
     let prompt = IDEA_PROMPT
         .replace("{TODAY}", &today)
