@@ -4,6 +4,9 @@
 /flatpak-repo/
 *.flatpak
 /repo-fresh/
+/build-dir/
+/build-dir-fresh/
+/.flatpak-builder/
 .claude/PRPs/
 .gstack/
 .reports/
